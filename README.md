@@ -45,13 +45,13 @@ python index_builder.py --input results/vectors.npy --outdir indices
 可选参数（保持简单）：
 
 Bash
-# 选择构建的索引类型（支持 hnsw 或 flat，默认 hnsw）
+### 选择构建的索引类型（支持 hnsw 或 flat，默认 hnsw）
 python index_builder.py --type flat
 
-# 调优 HNSW 结构参数：最大连接数（默认 32）
+### 调优 HNSW 结构参数：最大连接数（默认 32）
 python index_builder.py --M 64
 
-# 调优 HNSW 结构参数：构建候选集大小（默认 200）
+### 调优 HNSW 结构参数：构建候选集大小（默认 200）
 python index_builder.py --ef 300
 输出（默认到 indices/）：
 
