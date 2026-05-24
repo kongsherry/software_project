@@ -35,7 +35,7 @@ python data_loader.py --obs-cols cell_type,disease,AgeGroup,sex,donor_id
 - `obs_metadata.csv`：cell_id + 常用元数据列（cell_type/disease/AgeGroup，存在才导出）
 - `summary.json`：数据规模、embedding 形状、导出列等摘要信息（便于展示/排查）
 
-中期：ANN 索引构建
+## 中期：ANN 索引构建
 承接数据输出的高维向量矩阵，构建基于 FAISS 的空间图索引，支持持久化存取。
 
 运行（项目根目录，依赖上述 vectors.npy）：
