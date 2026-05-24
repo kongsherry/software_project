@@ -89,3 +89,42 @@ def get_faiss_index(self):
         """提供给 P3 (检索逻辑) 直接调用的底层 FAISS index 对象"""
         return self.index
 
+def main():
+    """
+    命令行测试入口 (P2 自己独立测试用)
+    """
+    parser = argparse.ArgumentParser(description="P2: ANN 索引构建与测试")
+    parser.add_argument("--input", required=True, help="P1 提供的 numpy 向量矩阵文件 (.npy)")
+    parser.add_argument("--outdir", default="indices", help="索引保存目录")
+    parser.add_argument("--type", choices=['hnsw', 'flat'], default='hnsw', help="要构建的索引类型")
+    parser.add_argument("--M", type=int, default=32, help="HNSW: 最大连接数")
+    parser.add_argument("--ef", type=int, default=200, help="HNSW: 构建候选集大小")
+    
+    args = parser.parse_args()
+
+    # 1. 模拟接收 P1 的数据
+    print(f"[*] 正在读取向量数据: {args.input}")
+    vectors = np.load(args.input).astype(np.float32)
+    print(f"    向量形状: {vectors.shape}")
+
+    # 2. 实例化 P2 的组件
+    builder = AnnIndexBuilder()
+
+    # 3. 构建索引
+    if args.type == 'hnsw':
+        builder.build_hnsw_index(vectors, M=args.M, efConstruction=args.ef)
+        save_name = f"hnsw_M{args.M}_ef{args.ef}.index"
+    else:
+        builder.build_flat_index(vectors)
+        save_name = "flat.index"
+
+    # 4. 保存索引
+    save_path = os.path.join(args.outdir, save_name)
+    builder.save_index(save_path)
+
+    # 5. 验证加载功能
+    builder.load_index(save_path)
+
+
+if __name__ == "__main__":
+    main()
