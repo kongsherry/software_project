@@ -39,12 +39,13 @@ python data_loader.py --obs-cols cell_type,disease,AgeGroup,sex,donor_id
 承接数据输出的高维向量矩阵，构建基于 FAISS 的空间图索引，支持持久化存取。
 
 运行（项目根目录，依赖上述 vectors.npy）：
-
-Bash
+```bash
 python index_builder.py --input results/vectors.npy --outdir indices
+```
+
 可选参数（保持简单）：
 
-Bash
+```bash
 ### 选择构建的索引类型（支持 hnsw 或 flat，默认 hnsw）
 python index_builder.py --type flat
 
@@ -53,6 +54,8 @@ python index_builder.py --M 64
 
 ### 调优 HNSW 结构参数：构建候选集大小（默认 200）
 python index_builder.py --ef 300
+```
+
 输出（默认到 indices/）：
 
 hnsw_M32_ef200.index：用于核心检索加速的 HNSW 图结构索引。
