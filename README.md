@@ -117,3 +117,34 @@ python search.py --index indices/hnsw_M32_ef200.index \
 | `.search_by_vector(vector, k=10)` | 按原始向量检索，维度不匹配抛出 `ValueError` |
 
 检索耗时覆盖 FAISS 底层 `index.search()` 调用，结果自动将 numpy/Pandas 类型转为 Python 原生类型，可直接 JSON 序列化供 Flask API 使用。
+
+## 中期：Flask 后端 API 测试
+
+先确保前面的导出和索引文件已经生成，然后启动 Flask 服务：
+
+```bash
+python app.py
+```
+
+服务启动后，可以用下面的命令做接口测试：
+
+```bash
+# 首页健康检查
+curl.exe http://127.0.0.1:5000/
+
+# 按 cell_id 查询
+curl.exe -X POST http://127.0.0.1:5000/search ^
+  -H "Content-Type: application/json" ^
+  -d "{\"cell_id\":\"AAACCTGAGCAGGTCA-1_2\",\"k\":5}"
+
+# 按向量查询（示例向量需替换成实际维度一致的值）
+curl.exe -X POST http://127.0.0.1:5000/search ^
+  -H "Content-Type: application/json" ^
+  -d "{\"vector\":[0.1,0.2,0.3,0.4],\"k\":5}"
+```
+
+也可以先用 Flask 的测试客户端做快速烟测：
+
+```bash
+python -c "from app import app; client = app.test_client(); print(client.get('/').status_code); print(client.post('/search', json={'cell_id':'AAACCTGAGCAGGTCA-1_2','k':5}).status_code)"
+```
