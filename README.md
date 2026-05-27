@@ -148,3 +148,64 @@ curl.exe -X POST http://127.0.0.1:5000/search ^
 ```bash
 python -c "from app import app; client = app.test_client(); print(client.get('/').status_code); print(client.post('/search', json={'cell_id':'AAACCTGAGCAGGTCA-1_2','k':5}).status_code)"
 ```
+
+## 中期：前端 Web 界面与交互
+
+基于 Flask + HTML/CSS/JavaScript 实现 ANN 检索系统的前端页面，支持用户通过浏览器进行交互式查询，并动态展示检索结果。
+
+运行（项目根目录）：
+
+```bash
+python app.py
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:5000
+```
+
+功能说明：
+
+```text
+1. 支持按 Cell ID 查询
+2. 支持按原始向量查询
+3. 支持自定义 Top-K 返回数量
+4. 动态显示 ANN 检索耗时
+5. 表格化展示检索结果与元数据
+6. 前后端通过 /search API 完成交互
+```
+
+前端目录结构：
+
+```text
+templates/
+└── index.html
+
+static/
+└── style.css
+```
+
+页面主要实现内容：
+
+```text
+- HTML 页面结构设计
+- CSS 页面美化与响应式布局
+- JavaScript Fetch API 异步请求
+- 查询结果动态渲染
+- 错误状态提示与异常处理
+- Flask 模板页面集成
+```
+
+说明：
+
+运行前需确保已完成前面模块的数据导出与索引构建，并存在以下文件：
+
+```text
+results/vectors.npy
+results/cell_ids.npy
+results/obs_metadata.csv
+indices/hnsw_M32_ef200.index
+```
+
+否则前端页面无法正常完成 ANN 检索请求。
