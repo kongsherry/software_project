@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>单细胞 ANN 检索系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>单细胞高维向量 ANN 检索系统</h1>
+        <p>支持按 Cell ID 或原始向量进行近似最近邻检索</p>
+    </header>
+
+    <section class="card">
+        <h2>查询方式</h2>
+
+        <div class="form-group">
+            <label>Cell ID 查询</label>
+            <input id="cellIdInput" type="text" placeholder="例如：AAACCTGAGCAGGTCA-1_2">
+        </div>
+
+        <div class="divider">或</div>
+
+        <div class="form-group">
+            <label>Vector 向量查询</label>
+            <textarea id="vectorInput" placeholder="例如：0.1,0.2,0.3,0.4"></textarea>
+        </div>
+
+        <div class="form-group small">
+            <label>Top-K</label>
+            <input id="kInput" type="number" value="5" min="1" max="100">
+        </div>
+
+        <button onclick="searchCells()">开始检索</button>
+    </section>
+
+    <section class="card">
+        <h2>查询结果</h2>
+        <div id="status">等待查询...</div>
+        <div id="timeInfo"></div>
+
+        <table id="resultTable" style="display:none;">
+            <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Cell ID</th>
+                <th>Distance</th>
+                <th>Metadata</th>
+            </tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+        </table>
+    </section>
+</div>
+
+<script>
+async function searchCells() {
+    const cellId = document.getElementById("cellIdInput").value.trim();
+    const vectorText = document.getElementById("vectorInput").value.trim();
+    const k = parseInt(document.getElementById("kInput").value) || 5;
+
+    const status = document.getElementById("status");
+    const timeInfo = document.getElementById("timeInfo");
+    const table = document.getElementById("resultTable");
+    const tbody = document.getElementById("resultBody");
+
+    status.innerText = "正在查询...";
+    timeInfo.innerText = "";
+    tbody.innerHTML = "";
+    table.style.display = "none";
+
+    if (cellId && vectorText) {
+        status.innerText = "错误：Cell ID 和 Vector 只能填写一个。";
+        return;
+    }
+
+    if (!cellId && !vectorText) {
+        status.innerText = "错误：请填写 Cell ID 或 Vector。";
+        return;
+    }
+
+    let payload = { k: k };
+
+    if (cellId) {
+        payload.cell_id = cellId;
+    } else {
+        payload.vector = vectorText.split(",").map(x => parseFloat(x.trim()));
+    }
+
+    try {
+        const response = await fetch("/search", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            status.innerText = "查询失败：" + (data.error || data.message || "未知错误");
+            return;
+        }
+
+        status.innerText = "查询成功";
+        timeInfo.innerText = `FAISS 检索耗时：${data.time_ms} ms；请求总耗时：${data.request_time_ms} ms`;
+
+        data.results.forEach(item => {
+            const row = document.createElement("tr");
+
+            const metadata = item.metadata
+                ? Object.entries(item.metadata)
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join("; ")
+                : "";
+
+            row.innerHTML = `
+                <td>${item.rank}</td>
+                <td>${item.cell_id}</td>
+                <td>${item.distance}</td>
+                <td>${metadata}</td>
+            `;
+
+            tbody.appendChild(row);
+        });
+
+        table.style.display = "table";
+
+    } catch (error) {
+        status.innerText = "请求异常：" + error.message;
+    }
+}
+</script>
+</body>
+</html>

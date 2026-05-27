@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request,render_template
 from werkzeug.exceptions import HTTPException
 
 from search import AnnSearcher
@@ -141,25 +141,7 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index():
-        snapshot = state.snapshot()
-        return jsonify(
-            {
-                "service": "ann-flask-api",
-                "status": "ready" if snapshot["ready"] else "degraded",
-                "paths": {
-                    "index": DEFAULT_INDEX_PATH,
-                    "vectors": DEFAULT_VECTORS_PATH,
-                    "metadata": DEFAULT_METADATA_PATH,
-                    "cell_ids": DEFAULT_CELL_IDS_PATH,
-                },
-                "metrics": snapshot,
-                "endpoints": {
-                    "search": "/search",
-                    "method": "GET or POST",
-                    "inputs": ["cell_id", "vector", "k"],
-                },
-            }
-        )
+        return render_template("index.html")
 
     @app.route("/search", methods=["GET", "POST"])
     def search():
