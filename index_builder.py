@@ -83,6 +83,7 @@ class AnnIndexBuilder:
         start_time = time.time()
         self.index = faiss.read_index(filepath)
         self.dim = self.index.d
+        self.metric = getattr(self.index, "metric_type", self.metric)
         print(f"[+] 索引加载成功! 耗时: {time.time() - start_time:.3f} 秒, 维度: {self.dim}, 总数: {self.index.ntotal}")
 
     def get_faiss_index(self):

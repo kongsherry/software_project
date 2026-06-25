@@ -36,7 +36,7 @@ class AnnSearcher:
         builder = AnnIndexBuilder()
         builder.load_index(str(index_path))
         self.index: faiss.Index = builder.get_faiss_index()
-        self._metric_type: int = builder.metric
+        self._metric_type: int = getattr(self.index, "metric_type", builder.metric)
 
     @property
     def total_vectors(self) -> int:

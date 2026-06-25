@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -18,6 +19,9 @@ DEFAULT_INDEX_PATH = os.getenv("ANN_INDEX_PATH", "indices/hnsw_M32_ef200.index")
 DEFAULT_VECTORS_PATH = os.getenv("ANN_VECTORS_PATH", "results/vectors.npy")
 DEFAULT_METADATA_PATH = os.getenv("ANN_METADATA_PATH", "results/obs_metadata.csv")
 DEFAULT_CELL_IDS_PATH = os.getenv("ANN_CELL_IDS_PATH", "results/cell_ids.npy")
+DEFAULT_EVALUATION_REPORT_PATH = Path(
+    os.getenv("ANN_EVALUATION_REPORT_PATH", "evaluation_report.json")
+)
 MAX_K = int(os.getenv("ANN_MAX_K", "100"))
 
 
@@ -187,6 +191,10 @@ def create_app() -> Flask:
             "dataset_count": len(datasets["datasets"]),
         })
 
+    @app.get("/metrics")
+    def metrics():
+        return jsonify(_load_evaluation_report())
+
     @app.get("/datasets")
     def list_datasets():
         return jsonify(dataset_manager.list_datasets())
@@ -341,6 +349,21 @@ def _sanitize(value: Any) -> Any:
         pass
 
     return value
+
+
+def _load_evaluation_report() -> dict[str, Any]:
+    if not DEFAULT_EVALUATION_REPORT_PATH.exists():
+        raise KeyError(
+            f"Evaluation report not found: {DEFAULT_EVALUATION_REPORT_PATH}. "
+            "Run `python evaluate.py` first."
+        )
+
+    with DEFAULT_EVALUATION_REPORT_PATH.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if not isinstance(payload, dict):
+        raise ValueError("Evaluation report must be a JSON object")
+    return payload
 
 
 if __name__ == "__main__":
