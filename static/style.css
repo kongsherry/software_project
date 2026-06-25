@@ -90,6 +90,33 @@ button:hover {
     background: #162d66;
 }
 
+button:disabled {
+    background: #9aa8c7;
+    cursor: not-allowed;
+}
+
+button.danger {
+    background: #b42318;
+    margin-left: 8px;
+}
+
+button.danger:hover {
+    background: #8f1c14;
+}
+
+.dataset-toolbar {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) minmax(220px, 1.2fr) 120px auto;
+    gap: 12px;
+    align-items: center;
+    margin: 14px 0 18px;
+}
+
+#datasetStatus {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
 #status {
     margin-bottom: 10px;
     font-weight: bold;
@@ -128,6 +155,10 @@ tr:nth-child(even) {
     .container {
         width: 95%;
         margin: 20px auto;
+    }
+
+    .dataset-toolbar {
+        grid-template-columns: 1fr;
     }
 
     table {

@@ -89,6 +89,43 @@ class AnnIndexBuilder:
         """提供给 P3 (检索逻辑) 直接调用的底层 FAISS index 对象"""
         return self.index
 
+
+def build_index_from_vectors(
+    vectors_path: str,
+    output_path: str,
+    index_type: str = "hnsw",
+    metric: str = "l2",
+    M: int = 32,
+    efConstruction: int = 200,
+) -> dict[str, object]:
+    """从 .npy 向量矩阵构建索引并保存，供 CLI 和数据集管理模块复用。"""
+    vectors = np.load(vectors_path).astype(np.float32)
+    if vectors.ndim != 2:
+        raise ValueError(f"向量矩阵应为二维，当前 shape={vectors.shape}")
+
+    started = time.time()
+    builder = AnnIndexBuilder(dim=vectors.shape[1], metric=metric)
+    if index_type == "hnsw":
+        builder.build_hnsw_index(vectors, M=M, efConstruction=efConstruction)
+    elif index_type == "flat":
+        builder.build_flat_index(vectors)
+    else:
+        raise ValueError("index_type 仅支持 hnsw 或 flat")
+
+    builder.save_index(output_path)
+    elapsed = time.time() - started
+    return {
+        "index_path": output_path,
+        "index_type": index_type,
+        "metric": metric,
+        "vectors_path": vectors_path,
+        "shape": [int(vectors.shape[0]), int(vectors.shape[1])],
+        "build_seconds": round(elapsed, 3),
+        "M": int(M),
+        "efConstruction": int(efConstruction),
+    }
+
+
 def main():
     """
     命令行测试入口 (P2 自己独立测试用)
@@ -102,27 +139,23 @@ def main():
     
     args = parser.parse_args()
 
-    # 1. 模拟接收 P1 的数据
-    print(f"[*] 正在读取向量数据: {args.input}")
-    vectors = np.load(args.input).astype(np.float32)
-    print(f"    向量形状: {vectors.shape}")
-
-    # 2. 实例化 P2 的组件
-    builder = AnnIndexBuilder()
-
-    # 3. 构建索引
     if args.type == 'hnsw':
-        builder.build_hnsw_index(vectors, M=args.M, efConstruction=args.ef)
         save_name = f"hnsw_M{args.M}_ef{args.ef}.index"
     else:
-        builder.build_flat_index(vectors)
         save_name = "flat.index"
 
-    # 4. 保存索引
     save_path = os.path.join(args.outdir, save_name)
-    builder.save_index(save_path)
+    print(f"[*] 正在读取向量数据: {args.input}")
+    summary = build_index_from_vectors(
+        vectors_path=args.input,
+        output_path=save_path,
+        index_type=args.type,
+        M=args.M,
+        efConstruction=args.ef,
+    )
+    print(f"    向量形状: {tuple(summary['shape'])}")
 
-    # 5. 验证加载功能
+    builder = AnnIndexBuilder()
     builder.load_index(save_path)
 
 

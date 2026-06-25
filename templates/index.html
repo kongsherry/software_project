@@ -13,6 +13,29 @@
     </header>
 
     <section class="card">
+        <h2>数据集管理</h2>
+        <div id="datasetStatus">正在加载数据集...</div>
+        <div class="dataset-toolbar">
+            <input id="datasetNameInput" type="text" placeholder="数据集名称（可选）">
+            <input id="datasetFileInput" type="file" accept=".h5ad">
+            <input id="datasetDimsInput" type="number" value="30" min="-1" title="导出维度，-1 表示全部">
+            <button onclick="uploadDataset()">上传并构建</button>
+        </div>
+        <table id="datasetTable" style="display:none;">
+            <thead>
+            <tr>
+                <th>名称</th>
+                <th>细胞数</th>
+                <th>Embedding</th>
+                <th>索引</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="datasetBody"></tbody>
+        </table>
+    </section>
+
+    <section class="card">
         <h2>查询方式</h2>
 
         <div class="form-group">
@@ -55,6 +78,131 @@
 </div>
 
 <script>
+let activeDatasetId = null;
+
+document.addEventListener("DOMContentLoaded", loadDatasets);
+
+async function loadDatasets() {
+    const status = document.getElementById("datasetStatus");
+    const table = document.getElementById("datasetTable");
+    const tbody = document.getElementById("datasetBody");
+
+    status.innerText = "正在加载数据集...";
+    tbody.innerHTML = "";
+    table.style.display = "none";
+
+    try {
+        const response = await fetch("/datasets");
+        const data = await response.json();
+        if (!response.ok) {
+            status.innerText = "加载失败：" + (data.message || data.error || "未知错误");
+            return;
+        }
+
+        activeDatasetId = data.active_dataset_id;
+        if (!data.datasets.length) {
+            status.innerText = "暂无可用数据集，请上传 .h5ad 文件。";
+            return;
+        }
+
+        status.innerText = `当前活动数据集：${activeDatasetId || "未设置"}`;
+        data.datasets.forEach(dataset => {
+            const row = document.createElement("tr");
+            const embedding = dataset.embedding ? dataset.embedding.key : "-";
+            const nObs = dataset.n_obs || "-";
+            const activeLabel = dataset.id === activeDatasetId ? "当前" : "切换";
+            const datasetId = escapeHtml(dataset.id);
+            const datasetName = escapeHtml(dataset.name || dataset.id);
+            const indexType = escapeHtml(dataset.index_type || "-");
+            const deleteButton = dataset.readonly
+                ? ""
+                : `<button class="danger" onclick="deleteDataset('${datasetId}')">删除</button>`;
+
+            row.innerHTML = `
+                <td>${datasetName}</td>
+                <td>${nObs}</td>
+                <td>${escapeHtml(embedding)}</td>
+                <td>${indexType}</td>
+                <td>
+                    <button onclick="activateDataset('${datasetId}')" ${dataset.id === activeDatasetId ? "disabled" : ""}>${activeLabel}</button>
+                    ${deleteButton}
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        table.style.display = "table";
+    } catch (error) {
+        status.innerText = "请求异常：" + error.message;
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+async function uploadDataset() {
+    const status = document.getElementById("datasetStatus");
+    const fileInput = document.getElementById("datasetFileInput");
+    const name = document.getElementById("datasetNameInput").value.trim();
+    const dims = document.getElementById("datasetDimsInput").value || "30";
+
+    if (!fileInput.files.length) {
+        status.innerText = "请先选择 .h5ad 文件。";
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    formData.append("name", name);
+    formData.append("dims", dims);
+    formData.append("activate", "true");
+
+    status.innerText = "正在上传、导出向量并构建索引，较大的 .h5ad 可能需要等待...";
+    try {
+        const response = await fetch("/datasets", { method: "POST", body: formData });
+        const data = await response.json();
+        if (!response.ok) {
+            status.innerText = "上传失败：" + (data.message || data.error || "未知错误");
+            return;
+        }
+        document.getElementById("datasetNameInput").value = "";
+        fileInput.value = "";
+        await loadDatasets();
+    } catch (error) {
+        status.innerText = "请求异常：" + error.message;
+    }
+}
+
+async function activateDataset(datasetId) {
+    const status = document.getElementById("datasetStatus");
+    status.innerText = "正在切换数据集...";
+    const response = await fetch(`/datasets/${datasetId}/activate`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) {
+        status.innerText = "切换失败：" + (data.message || data.error || "未知错误");
+        return;
+    }
+    await loadDatasets();
+}
+
+async function deleteDataset(datasetId) {
+    const status = document.getElementById("datasetStatus");
+    status.innerText = "正在删除数据集...";
+    const response = await fetch(`/datasets/${datasetId}`, { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) {
+        status.innerText = "删除失败：" + (data.message || data.error || "未知错误");
+        return;
+    }
+    await loadDatasets();
+}
+
 async function searchCells() {
     const cellId = document.getElementById("cellIdInput").value.trim();
     const vectorText = document.getElementById("vectorInput").value.trim();

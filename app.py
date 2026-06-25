@@ -11,6 +11,7 @@ import numpy as np
 from flask import Flask, jsonify, request,render_template
 from werkzeug.exceptions import HTTPException
 
+from dataset_manager import DatasetManager
 from search import AnnSearcher
 
 DEFAULT_INDEX_PATH = os.getenv("ANN_INDEX_PATH", "indices/hnsw_M32_ef200.index")
@@ -24,25 +25,34 @@ class SearchState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.searcher: AnnSearcher | None = None
+        self.dataset_id: str | None = None
         self.load_error: str | None = None
         self.query_count = 0
         self.total_query_ms = 0.0
         self.last_query_ms = 0.0
         self.last_search_ms = 0.0
 
-    def ensure_searcher(self) -> AnnSearcher:
+    def ensure_searcher(self, dataset_manager: DatasetManager) -> AnnSearcher:
         with self._lock:
-            if self.searcher is not None:
+            dataset = dataset_manager.get_active_dataset()
+            dataset_id = str(dataset["id"])
+            if self.searcher is not None and self.dataset_id == dataset_id:
                 return self.searcher
 
             self.searcher = AnnSearcher(
-                DEFAULT_INDEX_PATH,
-                DEFAULT_VECTORS_PATH,
-                DEFAULT_METADATA_PATH,
-                DEFAULT_CELL_IDS_PATH,
+                str(dataset["index_path"]),
+                str(dataset["vectors_path"]),
+                str(dataset["metadata_path"]),
+                str(dataset["cell_ids_path"]),
             )
+            self.dataset_id = dataset_id
             self.load_error = None
             return self.searcher
+
+    def clear_searcher(self) -> None:
+        with self._lock:
+            self.searcher = None
+            self.dataset_id = None
 
     def record_query(self, query_ms: float, search_ms: float) -> dict[str, float | int]:
         with self._lock:
@@ -67,11 +77,18 @@ class SearchState:
                 "last_search_ms": round(self.last_search_ms, 3),
                 "avg_query_ms": round(avg_ms, 3),
                 "ready": self.searcher is not None,
+                "dataset_id": self.dataset_id,
                 "load_error": self.load_error,
             }
 
 
 state = SearchState()
+dataset_manager = DatasetManager(
+    legacy_vectors=DEFAULT_VECTORS_PATH,
+    legacy_metadata=DEFAULT_METADATA_PATH,
+    legacy_cell_ids=DEFAULT_CELL_IDS_PATH,
+    legacy_index=DEFAULT_INDEX_PATH,
+)
 
 
 def create_app() -> Flask:
@@ -129,6 +146,24 @@ def create_app() -> Flask:
         }
         return jsonify(payload), 500
 
+    @app.errorhandler(ValueError)
+    def _handle_bad_request(exc: ValueError):
+        payload = {
+            "error": "Bad Request",
+            "message": str(exc),
+            "status": 400,
+        }
+        return jsonify(payload), 400
+
+    @app.errorhandler(KeyError)
+    def _handle_not_found(exc: KeyError):
+        payload = {
+            "error": "Not Found",
+            "message": str(exc).strip("'"),
+            "status": 404,
+        }
+        return jsonify(payload), 404
+
     @app.errorhandler(FileNotFoundError)
     def _handle_missing_dependency(exc: FileNotFoundError):
         app.logger.warning("Unavailable dependency or artifact: %s", exc)
@@ -143,10 +178,54 @@ def create_app() -> Flask:
     def index():
         return render_template("index.html")
 
+    @app.get("/status")
+    def status():
+        datasets = dataset_manager.list_datasets()
+        return jsonify({
+            "search": state.snapshot(),
+            "active_dataset_id": datasets["active_dataset_id"],
+            "dataset_count": len(datasets["datasets"]),
+        })
+
+    @app.get("/datasets")
+    def list_datasets():
+        return jsonify(dataset_manager.list_datasets())
+
+    @app.post("/datasets")
+    def upload_dataset():
+        uploaded_file = request.files.get("file")
+        dataset = dataset_manager.create_from_upload(
+            uploaded_file=uploaded_file,
+            name=request.form.get("name"),
+            embedding=request.form.get("embedding", "X_pca"),
+            dims=_parse_int(request.form.get("dims", 30), "dims"),
+            obs_cols=request.form.get("obs_cols", "cell_type,disease,AgeGroup"),
+            l2=_parse_bool(request.form.get("l2", "true")),
+            index_type=request.form.get("index_type", "hnsw"),
+            metric=request.form.get("metric", "l2"),
+            M=_parse_int(request.form.get("M", 32), "M"),
+            ef=_parse_int(request.form.get("ef", 200), "ef"),
+            activate=_parse_bool(request.form.get("activate", "true")),
+        )
+        state.clear_searcher()
+        return jsonify({"message": "数据集上传并构建完成", "dataset": dataset}), 201
+
+    @app.post("/datasets/<dataset_id>/activate")
+    def activate_dataset(dataset_id: str):
+        dataset = dataset_manager.activate_dataset(dataset_id)
+        state.clear_searcher()
+        return jsonify({"message": "已切换活动数据集", "dataset": dataset})
+
+    @app.delete("/datasets/<dataset_id>")
+    def delete_dataset(dataset_id: str):
+        result = dataset_manager.delete_dataset(dataset_id)
+        state.clear_searcher()
+        return jsonify({"message": "数据集已删除", **result})
+
     @app.route("/search", methods=["GET", "POST"])
     def search():
         request_started = time.perf_counter()
-        searcher = state.ensure_searcher()
+        searcher = state.ensure_searcher(dataset_manager)
         payload = _extract_payload()
         cell_id = payload.get("cell_id")
         vector = payload.get("vector")
@@ -204,6 +283,19 @@ def _parse_k(value: Any) -> int:
     if k > MAX_K:
         raise ValueError(f"k 不能大于 {MAX_K}")
     return k
+
+
+def _parse_int(value: Any, name: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是整数") from exc
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_vector(value: Any) -> np.ndarray:

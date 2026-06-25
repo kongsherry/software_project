@@ -209,3 +209,109 @@ indices/hnsw_M32_ef200.index
 ```
 
 否则前端页面无法正常完成 ANN 检索请求。
+
+
+---
+## 数据集管理（上传 / 删除 / 切换）
+
+完成数据集管理模块，新增 `dataset_manager.py`，并在现有 Flask 后端与前端页面中接入上传、删除、切换活动数据集的能力。上传完成后会自动触发向量导出和索引构建：
+
+```text
+data_loader.export_h5ad() -> 导出 vectors/cell_ids/metadata/summary
+index_builder.build_index_from_vectors() -> 构建 FAISS 索引
+```
+
+新增/修改文件：
+
+```text
+新增 dataset_manager.py
+修改 app.py
+修改 data_loader.py
+修改 index_builder.py
+修改 templates/index.html
+修改 static/style.css
+补充 README.md
+```
+
+默认产物目录：
+
+```text
+data/datasets/<dataset_id>/        # 上传的 .h5ad 源文件
+results/datasets/<dataset_id>/     # vectors.npy、cell_ids.npy、obs_metadata.csv、summary.json
+indices/datasets/<dataset_id>/     # hnsw_M*_ef*.index 或 flat.index
+results/datasets/manifest.json     # 数据集清单与当前活动数据集
+```
+
+兼容已有默认数据集：
+
+```text
+results/vectors.npy
+results/cell_ids.npy
+results/obs_metadata.csv
+indices/hnsw_M32_ef200.index
+```
+
+如果上述文件存在，系统会自动登记为只读的 `default` 数据集。默认数据集可以切换使用，但不能通过管理接口删除。
+
+### Web 页面操作
+
+启动服务后访问首页：
+
+```bash
+python app.py
+```
+
+```text
+http://127.0.0.1:5000
+```
+
+页面顶部的“数据集管理”区域支持：
+
+```text
+1. 查看当前活动数据集
+2. 上传 .h5ad 文件并自动导出向量、构建索引
+3. 切换活动数据集，后续 /search 自动使用新数据集
+4. 删除上传的数据集并清理对应 data/results/indices 文件
+```
+
+### 数据集管理 API
+
+列出数据集：
+
+```bash
+curl.exe http://127.0.0.1:5000/datasets
+```
+
+上传 `.h5ad` 并自动激活：
+
+```bash
+curl.exe -X POST http://127.0.0.1:5000/datasets ^
+  -F "file=@data/liver.h5ad" ^
+  -F "name=liver-demo" ^
+  -F "embedding=X_pca" ^
+  -F "dims=30" ^
+  -F "index_type=hnsw" ^
+  -F "M=32" ^
+  -F "ef=200" ^
+  -F "activate=true"
+```
+
+切换活动数据集：
+
+```bash
+curl.exe -X POST http://127.0.0.1:5000/datasets/liver-demo/activate
+```
+
+删除上传的数据集：
+
+```bash
+curl.exe -X DELETE http://127.0.0.1:5000/datasets/liver-demo
+```
+
+查看服务状态：
+
+```bash
+curl.exe http://127.0.0.1:5000/status
+```
+
+活动数据集切换后，`app.py` 会清空当前 `AnnSearcher` 缓存；下一次 `/search` 请求会按新的 `index_path / vectors_path / metadata_path / cell_ids_path` 重新加载。
