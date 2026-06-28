@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - 单细胞 ANN 检索系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h1>单细胞 ANN 检索系统</h1>
+            <p>创建新账号</p>
+        </div>
+
+        <div id="authError" class="auth-error" style="display:none;"></div>
+
+        <form id="registerForm" onsubmit="return handleRegister(event)">
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input id="username" type="text" placeholder="至少 2 个字符" required minlength="2" autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input id="password" type="password" placeholder="至少 6 个字符" required minlength="6">
+            </div>
+            <div class="form-group">
+                <label for="confirmPassword">确认密码</label>
+                <input id="confirmPassword" type="password" placeholder="再次输入密码" required minlength="6">
+            </div>
+            <button type="submit" class="auth-btn">注 册</button>
+        </form>
+
+        <div class="auth-footer">
+            已有账号？<a href="{{ url_for('login_page') }}">返回登录</a>
+        </div>
+    </div>
+</div>
+
+<script>
+async function handleRegister(event) {
+    event.preventDefault();
+    const errorEl = document.getElementById("authError");
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+    const confirmPassword = document.getElementById("confirmPassword").value;
+    const btn = event.target.querySelector("button");
+
+    errorEl.style.display = "none";
+
+    if (password !== confirmPassword) {
+        errorEl.textContent = "两次输入的密码不一致";
+        errorEl.style.display = "block";
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "注册中...";
+
+    try {
+        const response = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ username, password }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            errorEl.textContent = data.error || "注册失败";
+            errorEl.style.display = "block";
+            btn.disabled = false;
+            btn.textContent = "注 册";
+            return;
+        }
+        window.location.href = "/";
+    } catch (err) {
+        errorEl.textContent = "网络错误：" + err.message;
+        errorEl.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "注 册";
+    }
+}
+</script>
+</body>
+</html>

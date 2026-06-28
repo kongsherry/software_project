@@ -4,9 +4,17 @@
     <meta charset="UTF-8">
     <title>单细胞 ANN 检索系统</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
 </head>
 <body>
 <div class="container">
+    <div class="user-bar" id="userBar">
+        <span>用户：<span class="username" id="displayUsername">-</span></span>
+        <span class="role-tag" id="displayRole">-</span>
+        <a href="/admin" id="adminLink" style="display:none;">用户管理</a>
+        <button class="link-style" onclick="handleLogout()">退出登录</button>
+    </div>
+
     <header>
         <h1>单细胞高维向量 ANN 检索系统</h1>
         <p>支持按 Cell ID 或原始向量进行近似最近邻检索</p>
@@ -79,8 +87,36 @@
 
 <script>
 let activeDatasetId = null;
+let currentUser = null;
 
-document.addEventListener("DOMContentLoaded", loadDatasets);
+document.addEventListener("DOMContentLoaded", async function() {
+    await loadCurrentUser();
+    await loadDatasets();
+});
+
+async function loadCurrentUser() {
+    try {
+        const response = await fetch("/api/auth/me");
+        if (!response.ok) {
+            window.location.href = "/login";
+            return;
+        }
+        const data = await response.json();
+        currentUser = data.user;
+        document.getElementById("displayUsername").textContent = data.user.username;
+        document.getElementById("displayRole").textContent = data.user.role === "admin" ? "管理员" : "用户";
+        if (data.user.role === "admin") {
+            document.getElementById("adminLink").style.display = "inline";
+        }
+    } catch (err) {
+        window.location.href = "/login";
+    }
+}
+
+async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+}
 
 async function loadDatasets() {
     const status = document.getElementById("datasetStatus");

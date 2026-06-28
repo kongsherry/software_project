@@ -315,3 +315,141 @@ curl.exe http://127.0.0.1:5000/status
 ```
 
 活动数据集切换后，`app.py` 会清空当前 `AnnSearcher` 缓存；下一次 `/search` 请求会按新的 `index_path / vectors_path / metadata_path / cell_ids_path` 重新加载。
+
+
+这是按照你提供的模板格式，为你梳理和缩减的两个功能模块的实现记录：
+
+## 条件检索（元数据过滤与混合策略）
+
+完成条件检索模块，在现有 `AnnSearcher` 中接入按细胞类型/疾病等元数据条件过滤后再返回 Top-K 的能力。采用动态混合过滤策略，以保证不同数据规模下的检索精度与性能：
+
+```text
+接收带 filters 的检索请求 -> 判断过滤后的候选细胞数量
+若候选数量 < 1000 -> 预过滤：构建 FAISS IDMap 子集进行精确搜索
+若候选数量 ≥ 1000 -> 后过滤：先扩大搜索范围至 max(k*3, 200)，再按条件筛选补齐至 K 个
+
+```
+
+新增/修改文件：
+
+```text
+修改 search.py
+修改 app.py
+
+```
+
+返回数据结构更新：
+
+```text
+响应 JSON 新增 filter_info 字段，包含：
+- filtered_count: 过滤后的细胞总数
+- strategy: 当前触发的策略 (pre_filter / post_filter)
+- filters: 当前生效的过滤条件
+
+```
+
+### 检索 API (支持条件过滤)
+
+带条件检索（通过 `filters` 字段传入元数据条件）：
+
+```bash
+curl -X POST http://127.0.0.1:5000/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cell_id": "AAACCTGAGCAGGTCA-1_2",
+    "k": 10,
+    "filters": {"disease": "healthy", "cell_type": "hepatocyte"}
+  }'
+
+```
+
+---
+
+## 用户认证与权限管理系统
+
+完成完整的用户认证与授权系统，新增 `user_manager.py`，并在现有 Flask 后端与前端页面中接入用户注册、登录、会话管理及管理员功能。所有核心业务路由均添加了强制登录限制（`@login_required`）：
+
+```text
+用户注册/登录 -> PBKDF2-SHA256 密码哈希校验 -> 签发 HTTPOnly Session
+访问受保护路由 -> 鉴权装饰器校验 Session 与 Role -> 渲染页面或执行 API
+
+```
+
+新增/修改文件：
+
+```text
+新增 user_manager.py
+新增 templates/login.html
+新增 templates/register.html
+新增 templates/admin.html
+新增 static/auth.css
+修改 app.py
+修改 templates/index.html
+
+```
+
+默认产物目录：
+
+```text
+data/users.json    # 用户数据持久化存储文件 (可通过 ANN_USERS_PATH 环境变量自定义)
+
+```
+
+兼容与安全策略：
+
+```text
+首次启动会自动在 data/users.json 中创建默认管理员账号 (admin / admin123)。
+在执行删除用户或降级角色操作时，系统会自动拦截并保护“最后一个管理员”，防止出现权限锁定情况。
+
+```
+
+### Web 页面操作
+
+启动服务后访问相关路由：
+
+```text
+1. 访问 /login 或 /register 进行登录与注册，支持前端校验与异步错误反馈。
+2. 登录成功后，首页顶部展示用户信息栏，包含当前角色标签与退出登录按钮。
+3. 管理员可进入 /admin 面板，支持：
+   - 浏览所有注册用户信息及活跃状态
+   - 动态提升普通用户为管理员或降级
+   - 强制重置任意用户的密码
+   - 删除违规或闲置用户
+
+```
+
+### 认证与管理 API
+
+用户注册（公开）：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "password": "testpass"}'
+
+```
+
+用户登录（公开，登录后客户端需保存返回的 Cookie）：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "password": "testpass"}'
+
+```
+
+获取当前登录用户信息（需登录）：
+
+```bash
+curl http://127.0.0.1:5000/api/auth/me
+
+```
+
+修改用户角色（需管理员权限）：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/admin/users/testuser/role \
+  -H "Content-Type: application/json" \
+  -d '{"role": "admin"}'
+
+```

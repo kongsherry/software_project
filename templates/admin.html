@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - 单细胞 ANN 检索系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>用户管理</h1>
+        <p>管理员面板 — 管理所有注册用户</p>
+        <div class="nav-links">
+            <a href="/" class="nav-link">← 返回检索系统</a>
+            <a href="#" onclick="handleLogout()" class="nav-link">退出登录</a>
+        </div>
+    </header>
+
+    <section class="card">
+        <h2>用户列表</h2>
+        <div id="userStatus">加载中...</div>
+        <table id="userTable" style="display:none;">
+            <thead>
+            <tr>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>注册时间</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="userBody"></tbody>
+        </table>
+    </section>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", loadUsers);
+
+async function loadUsers() {
+    const status = document.getElementById("userStatus");
+    const table = document.getElementById("userTable");
+    const tbody = document.getElementById("userBody");
+
+    status.innerText = "加载中...";
+    tbody.innerHTML = "";
+    table.style.display = "none";
+
+    try {
+        const response = await fetch("/api/admin/users");
+        if (response.status === 401 || response.status === 403) {
+            const data = await response.json();
+            status.innerText = data.error || "权限不足，请以管理员身份登录";
+            return;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            status.innerText = "加载失败：" + (data.error || "未知错误");
+            return;
+        }
+
+        if (!data.users.length) {
+            status.innerText = "暂无用户数据";
+            return;
+        }
+
+        status.innerText = `共 ${data.users.length} 个用户`;
+        data.users.forEach(user => {
+            const row = document.createElement("tr");
+            const created = user.created_at
+                ? new Date(user.created_at * 1000).toLocaleString("zh-CN")
+                : "-";
+
+            const isSelf = user.username === "{{ session.get('user') }}";
+
+            row.innerHTML = `
+                <td>${escapeHtml(user.username)}</td>
+                <td>
+                    <span class="role-badge role-${user.role}">${user.role === "admin" ? "管理员" : "普通用户"}</span>
+                </td>
+                <td>${created}</td>
+                <td>${user.is_active ? "正常" : "已禁用"}</td>
+                <td>
+                    <button onclick="changeRole('${escapeHtml(user.username)}', '${user.role === "admin" ? "user" : "admin"}')" ${isSelf ? "disabled" : ""}>
+                        ${user.role === "admin" ? "降级为用户" : "提升为管理员"}
+                    </button>
+                    <button class="danger" onclick="resetPassword('${escapeHtml(user.username)}')" ${isSelf ? "disabled" : ""}>重置密码</button>
+                    <button class="danger" onclick="deleteUser('${escapeHtml(user.username)}')" ${isSelf ? "disabled" : ""}>删除</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        table.style.display = "table";
+    } catch (error) {
+        status.innerText = "请求异常：" + error.message;
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+async function changeRole(username, newRole) {
+    const action = newRole === "admin" ? "提升为管理员" : "降级为普通用户";
+    if (!confirm(`确定将「${username}」${action}？`)) return;
+
+    try {
+        const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}/role`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ role: newRole }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert("操作失败：" + (data.error || "未知错误"));
+            return;
+        }
+        await loadUsers();
+    } catch (err) {
+        alert("请求异常：" + err.message);
+    }
+}
+
+async function resetPassword(username) {
+    const newPassword = prompt(`请输入「${username}」的新密码（至少 6 位）：`);
+    if (!newPassword || newPassword.length < 6) {
+        alert("密码至少需要 6 个字符");
+        return;
+    }
+    if (!confirm(`确定重置「${username}」的密码？`)) return;
+
+    try {
+        const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}/reset-password`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ new_password: newPassword }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert("重置失败：" + (data.error || "未知错误"));
+            return;
+        }
+        alert(`用户「${username}」密码已重置`);
+    } catch (err) {
+        alert("请求异常：" + err.message);
+    }
+}
+
+async function deleteUser(username) {
+    if (!confirm(`确定要删除用户「${username}」？此操作不可撤销！`)) return;
+    if (!confirm(`再次确认：删除「${username}」？`)) return;
+
+    try {
+        const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}`, {
+            method: "DELETE",
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert("删除失败：" + (data.error || "未知错误"));
+            return;
+        }
+        await loadUsers();
+    } catch (err) {
+        alert("请求异常：" + err.message);
+    }
+}
+
+async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-25T12:47:34.348829+00:00",
+  "generated_at": "2026-06-28T06:31:59.491899+00:00",
   "dataset": {
     "id": "default",
     "name": "默认 liver 数据集",
@@ -13,35 +13,35 @@
     "index_build": null
   },
   "performance_summary": {
-    "recall_at_1": 1.0,
-    "recall_at_10": 0.9838,
-    "recall_at_50": 0.89452,
-    "ann_qps": 22797.011,
-    "ann_avg_latency_ms": 0.042,
-    "ann_p95_latency_ms": 0.058,
-    "ground_truth_avg_latency_ms": 0.068,
+    "recall_at_1": 0.996,
+    "recall_at_10": 0.9834,
+    "recall_at_50": 0.89344,
+    "ann_qps": 15856.857,
+    "ann_avg_latency_ms": 0.06,
+    "ann_p95_latency_ms": 0.08,
+    "ground_truth_avg_latency_ms": 0.078,
     "index_size_mb": 25.816,
     "query_count": 500
   },
   "recall": {
-    "recall@1": 1.0,
-    "recall@10": 0.9838,
-    "recall@50": 0.89452
+    "recall@1": 0.996,
+    "recall@10": 0.9834,
+    "recall@50": 0.89344
   },
   "ann_search": {
     "engine": "IndexHNSWFlat",
     "top_k_searched": 50,
-    "total_search_time_ms": 21.933,
-    "average_response_time_ms": 0.042,
-    "p95_response_time_ms": 0.058,
-    "qps": 22797.011
+    "total_search_time_ms": 31.532,
+    "average_response_time_ms": 0.06,
+    "p95_response_time_ms": 0.08,
+    "qps": 15856.857
   },
   "ground_truth": {
     "engine": "faiss.IndexFlatL2",
     "top_k_searched": 50,
-    "build_time_ms": 2.275,
-    "total_search_time_ms": 33.93,
-    "average_response_time_ms": 0.068
+    "build_time_ms": 5.755,
+    "total_search_time_ms": 39.082,
+    "average_response_time_ms": 0.078
   },
   "index_size": {
     "bytes": 27070466,

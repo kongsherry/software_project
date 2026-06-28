@@ -1,0 +1,167 @@
+/* ── 认证页面样式 (登录 / 注册) ── */
+
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1f3c88 0%, #2a5298 100%);
+    padding: 20px;
+}
+
+.auth-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.auth-header h1 {
+    font-size: 22px;
+    color: #1f3c88;
+    margin: 0 0 8px;
+}
+
+.auth-header p {
+    color: #666;
+    margin: 0;
+    font-size: 15px;
+}
+
+.auth-error {
+    background: #fef2f2;
+    color: #b42318;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.auth-btn {
+    width: 100%;
+    padding: 14px;
+    background: #1f3c88;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.2s;
+}
+
+.auth-btn:hover {
+    background: #162d66;
+}
+
+.auth-btn:disabled {
+    background: #9aa8c7;
+    cursor: not-allowed;
+}
+
+.auth-footer {
+    text-align: center;
+    margin-top: 24px;
+    color: #666;
+    font-size: 14px;
+}
+
+.auth-footer a {
+    color: #1f3c88;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+}
+
+/* ── 管理员页面 ── */
+
+.nav-links {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 12px;
+}
+
+.nav-link {
+    color: #1f3c88;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.nav-link:hover {
+    text-decoration: underline;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.role-admin {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.role-user {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+/* ── 用户信息栏（主页面） ── */
+
+.user-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #555;
+}
+
+.user-bar .username {
+    font-weight: bold;
+    color: #1f3c88;
+}
+
+.user-bar .role-tag {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.user-bar a,
+.user-bar button.link-style {
+    color: #1f3c88;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.user-bar a:hover,
+.user-bar button.link-style:hover {
+    text-decoration: underline;
+}

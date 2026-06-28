@@ -40,7 +40,8 @@ def export_h5ad(
 	outdir = Path(outdir)
 	outdir.mkdir(parents=True, exist_ok=True)
 
-	adata = sc.read_h5ad(str(input_path))
+	# 使用 backed='r' 模式：只读取元数据，避免将庞大的基因表达矩阵 X 加载到内存
+	adata = sc.read_h5ad(str(input_path), backed="r")
 
 	emb_key = str(embedding)
 	if emb_key not in adata.obsm_keys():
