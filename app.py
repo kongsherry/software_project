@@ -24,6 +24,7 @@ from werkzeug.exceptions import HTTPException
 from dataset_manager import DatasetManager
 from search import AnnSearcher
 from user_manager import UserManager, DEFAULT_SESSION_SECRET
+from visualize import ScatterDataProvider
 
 DEFAULT_INDEX_PATH = os.getenv("ANN_INDEX_PATH", "indices/hnsw_M32_ef200.index")
 DEFAULT_VECTORS_PATH = os.getenv("ANN_VECTORS_PATH", "results/vectors.npy")
@@ -135,6 +136,7 @@ dataset_manager = DatasetManager(
 )
 user_manager = UserManager()
 user_manager.ensure_admin_exists()
+scatter_provider = ScatterDataProvider()
 
 
 # ───────────────────────── App Factory ─────────────────────────
@@ -389,6 +391,66 @@ def create_app() -> Flask:
         result = dataset_manager.delete_dataset(dataset_id)
         state.clear_searcher()
         return jsonify({"message": "数据集已删除", **result})
+    
+    @app.get("/scatter_data")
+    @login_required
+    def scatter_data():
+        dataset = dataset_manager.get_active_dataset()
+
+        max_points_raw = request.args.get("max_points")
+        if max_points_raw:
+            max_points = _parse_int(max_points_raw, "max_points")
+        else:
+            max_points = None
+
+        fields_raw = request.args.get("fields", "")
+        fields = [x.strip() for x in fields_raw.split(",") if x.strip()] or None
+
+        payload = scatter_provider.get_scatter_data(
+            dataset,
+            max_points=max_points,
+            metadata_fields=fields,
+        )
+
+        return jsonify(payload)
+
+
+    @app.post("/scatter_search")
+    @login_required
+    def scatter_search():
+        request_started = time.perf_counter()
+
+        searcher = state.ensure_searcher(dataset_manager)
+
+        payload = request.get_json(silent=True) or {}
+
+        cell_id = payload.get("cell_id")
+        if not cell_id:
+            return jsonify({"error": "请提供 cell_id"}), 400
+
+        k = _parse_k(payload.get("k", 10))
+        filters = _parse_filters(payload.get("filters"))
+
+        result = searcher.search_by_cell_id(
+            str(cell_id),
+            k=k,
+            filters=filters,
+        )
+
+        total_ms = (time.perf_counter() - request_started) * 1000
+
+        metrics = state.record_query(
+            total_ms,
+            float(result["time_ms"]),
+        )
+
+        return jsonify(
+            {
+                **result,
+                "request_time_ms": round(total_ms, 3),
+                "metrics": metrics,
+            }
+        )
 
     @app.route("/search", methods=["GET", "POST"])
     @login_required

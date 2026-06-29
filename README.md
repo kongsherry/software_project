@@ -365,6 +365,110 @@ curl -X POST http://127.0.0.1:5000/search \
 
 ---
 
+## 交互式可视化数据接口
+
+主要实现单细胞数据的二维可视化接口，为前端散点图展示和点击查询提供后端支持。
+
+### 主要功能
+
+1. 新增 `visualize.py`，用于读取当前活动数据集中的 `.h5ad` 文件。
+2. 优先读取 `adata.obsm["X_umap"]` 作为二维坐标；如果不存在，则尝试读取 `adata.obsm["X_tsne"]`。
+3. 将细胞 ID、二维坐标、细胞类型和元数据整合为 JSON，供前端绘制散点图。
+4. 支持前端点击散点图中的细胞后，通过 `cell_id` 反向查询该细胞的 Top-K 近邻。
+
+### 涉及文件
+
+```text
+新增：visualize.py
+修改：app.py
+```
+
+### 新增接口
+
+#### 获取散点图数据
+
+```text
+GET /scatter_data
+```
+
+可选参数：
+
+```text
+max_points：限制返回点数，用于前端降采样显示
+fields：指定返回的元数据字段
+```
+
+请求示例：
+
+```text
+http://127.0.0.1:5000/scatter_data?max_points=5
+```
+
+返回内容包括：
+
+```text
+basis：使用的坐标类型，如 X_umap 或 X_tsne
+dataset：当前数据集信息
+points：散点图数据点
+returned：实际返回点数
+total：数据集总细胞数
+```
+
+单个点的数据格式示例：
+
+```json
+{
+  "cell_id": "cell_0044",
+  "cell_type": "NK-cell",
+  "x": 21.4587,
+  "y": -2.2080,
+  "metadata": {
+    "cell_type": "NK-cell",
+    "disease": "HCC",
+    "AgeGroup": "Senior"
+  }
+}
+```
+
+#### 点击细胞反向查询
+
+```text
+POST /scatter_search
+```
+
+请求示例：
+
+```json
+{
+  "cell_id": "cell_0044",
+  "k": 10
+}
+```
+
+该接口复用已有的 `AnnSearcher.search_by_cell_id()` 方法，根据点击的细胞 ID 返回 Top-K 近邻结果。
+
+返回结果包括：
+
+```text
+rank：排名
+cell_id：近邻细胞 ID
+distance：距离
+metadata：近邻细胞元数据
+```
+
+### 测试结果
+
+已使用测试数据集 `test_data` 完成功能验证：
+
+```text
+1. /scatter_data?max_points=5 可以正常返回 X_umap 坐标数据；
+2. 返回数据包含 cell_id、x、y、cell_type 和 metadata；
+3. /scatter_search 可以根据 cell_id 返回 Top-K 近邻；
+4. 查询 cell_0044 时，返回 results: Array(10)，且 rank=1 为自身，distance=0。
+```
+
+说明交互式可视化数据接口已完成，可以为前端散点图渲染和点击查询功能提供支持。
+
 ## 用户认证与权限管理系统
 
 完成完整的用户认证与授权系统，新增 `user_manager.py`，并在现有 Flask 后端与前端页面中接入用户注册、登录、会话管理及管理员功能。所有核心业务路由均添加了强制登录限制（`@login_required`）：
