@@ -2,320 +2,858 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>单细胞 ANN 检索系统</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        /* ===== 全局布局 ===== */
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f8; }
+        .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+        /* ===== 顶部导航 ===== */
+        .navbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 20px; background: #fff; border-bottom: 1px solid #dee2e6;
+            flex-shrink: 0; flex-wrap: wrap;
+        }
+        .navbar .brand { font-weight: 700; font-size: 1.2rem; color: #2c3e50; }
+        .navbar .brand span { background: #007bff; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; margin-left: 6px; }
+        .navbar .right-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .navbar .right-group .user-badge { font-weight: 600; }
+        .navbar .right-group .role-tag { background: #e9ecef; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; }
+        .navbar .right-group .role-tag.admin { background: #cfe2ff; color: #0a58ca; }
+
+        /* ===== 选项卡 ===== */
+        .tabs {
+            display: flex; background: #fff; border-bottom: 1px solid #dee2e6;
+            padding: 0 20px; flex-shrink: 0;
+        }
+        .tabs .tab-btn {
+            padding: 10px 20px; border: none; background: transparent;
+            font-weight: 600; color: #6c757d; cursor: pointer;
+            border-bottom: 3px solid transparent; transition: 0.2s;
+        }
+        .tabs .tab-btn:hover { color: #007bff; }
+        .tabs .tab-btn.active { color: #007bff; border-bottom-color: #007bff; }
+
+        /* ===== 内容区 ===== */
+        .tab-content { display: none; flex: 1; overflow: hidden; }
+        .tab-content.active { display: flex; flex-direction: column; }
+
+        /* ===== 数据集管理页 ===== */
+        .dataset-page { padding: 20px; overflow-y: auto; }
+        .dataset-page .upload-area { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .dataset-page .upload-area .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .dataset-page .upload-area input[type="file"] { flex: 1; min-width: 200px; }
+        .dataset-page .upload-area button { background: #28a745; color: #fff; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; }
+        .dataset-page .upload-area button:hover { background: #218838; }
+        .dataset-page table { width: 100%; background: #fff; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .dataset-page th { background: #f8f9fa; text-align: left; padding: 10px 12px; }
+        .dataset-page td { padding: 8px 12px; border-top: 1px solid #f0f0f0; }
+        .dataset-page .btn-danger { background: #dc3545; color: #fff; border: none; padding: 2px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .dataset-page .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ===== 探索页（左控右图） ===== */
+        .explore-body { display: flex; flex: 1; overflow: hidden; }
+        .explore-left {
+            width: 320px; min-width: 280px; background: #fff;
+            padding: 16px; overflow-y: auto; border-right: 1px solid #dee2e6;
+        }
+        .explore-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #f8f9fa; }
+        .scatter-wrap { flex: 1; padding: 10px; position: relative; min-height: 300px; }
+        #scatterPlot { width: 100%; height: 100%; min-height: 400px; }
+
+        /* 结果面板 */
+        .result-panel {
+            height: 260px; background: #fff; border-top: 1px solid #dee2e6;
+            overflow-y: auto; padding: 10px; flex-shrink: 0;
+        }
+        .result-panel h3 { margin: 0 0 6px 0; font-size: 1rem; }
+        .result-panel table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
+        .result-panel th { position: sticky; top: 0; background: #f1f3f5; padding: 6px 8px; text-align: left; z-index: 2; }
+        .result-panel td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
+
+        /* 左侧控件 */
+        .ctrl-group { margin-bottom: 14px; }
+        .ctrl-group label { display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 3px; color: #333; }
+        .ctrl-group input, .ctrl-group select, .ctrl-group textarea {
+            width: 100%; padding: 5px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.9rem;
+        }
+        .ctrl-group textarea { height: 50px; resize: vertical; }
+        .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
+        .filter-row select { flex: 2; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row input { flex: 3; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row .del-btn { background: #dc3545; color: #fff; border: none; border-radius: 4px; padding: 0 6px; cursor: pointer; font-size: 0.7rem; height: 22px; }
+        .btn-primary { background: #007bff; color: #fff; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%; }
+        .btn-primary:hover { background: #0069d9; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-secondary { background: #6c757d; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .btn-secondary:hover { background: #5a6268; }
+        .status-msg { font-size: 0.85rem; color: #666; margin-top: 6px; }
+
+        /* ===== 性能评估页 ===== */
+        .metrics-page { padding: 20px; overflow-y: auto; }
+        .metrics-page .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .metrics-page .card { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .metrics-page .card h3 { margin-top: 0; font-size: 1rem; }
+        .metrics-page .full { grid-column: 1 / -1; }
+        .metrics-page .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 10px; }
+        .metrics-page .stat-item { background: #f8f9fa; padding: 10px; border-radius: 6px; text-align: center; }
+        .metrics-page .stat-item .num { font-size: 1.6rem; font-weight: 700; color: #007bff; }
+        .metrics-page .stat-item .label { font-size: 0.8rem; color: #666; }
+        .plot-container { width: 100%; height: 300px; }
+
+        /* ===== 响应式 ===== */
+        @media (max-width: 768px) {
+            .explore-body { flex-direction: column; }
+            .explore-left { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid #dee2e6; max-height: 50vh; }
+            .metrics-page .grid { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
-<div class="container">
-    <div class="user-bar" id="userBar">
-        <span>用户：<span class="username" id="displayUsername">-</span></span>
-        <span class="role-tag" id="displayRole">-</span>
-        <a href="/admin" id="adminLink" style="display:none;">用户管理</a>
-        <button class="link-style" onclick="handleLogout()">退出登录</button>
+<div class="app">
+
+    <!-- ===== 顶部导航 ===== -->
+    <nav class="navbar">
+        <div class="brand">🧬 ANN 单细胞检索 <span>v2.0</span></div>
+        <div class="right-group">
+            <span class="user-badge" id="displayUsername">-</span>
+            <span class="role-tag" id="displayRole">-</span>
+            <a href="/admin" id="adminLink" style="display:none; text-decoration:none; color:#007bff;">👥 管理</a>
+            <button class="btn-secondary" onclick="handleLogout()" style="padding:4px 12px;">退出</button>
+        </div>
+    </nav>
+
+    <!-- ===== 选项卡 ===== -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="dataset">📁 数据集管理</button>
+        <button class="tab-btn" data-tab="explore">🔬 探索</button>
+        <button class="tab-btn" data-tab="metrics">📊 性能评估</button>
     </div>
 
-    <header>
-        <h1>单细胞高维向量 ANN 检索系统</h1>
-        <p>支持按 Cell ID 或原始向量进行近似最近邻检索</p>
-    </header>
+    <!-- ========================================================== -->
+    <!-- 选项卡 1: 数据集管理 -->
+    <!-- ========================================================== -->
+    <div class="tab-content active" id="dataset-tab">
+        <div class="dataset-page">
+            <!-- 上传区域 -->
+            <div class="upload-area">
+                <div class="row">
+                    <input id="datasetFileInput" type="file" accept=".h5ad" style="flex:2;">
+                    <input id="datasetNameInput" type="text" placeholder="名称（可选）" style="flex:1; padding:4px 8px; border-radius:4px; border:1px solid #ccc;">
+                    <input id="datasetDimsInput" type="number" value="30" min="-1" style="width:80px; padding:4px 8px; border-radius:4px; border:1px solid #ccc;" title="-1 表示全部维度">
+                    <button onclick="uploadDataset()">⬆ 上传并构建</button>
+                </div>
+                <div id="datasetStatus" style="margin-top:8px; color:#666; font-size:0.9rem;">就绪</div>
+            </div>
 
-    <section class="card">
-        <h2>数据集管理</h2>
-        <div id="datasetStatus">正在加载数据集...</div>
-        <div class="dataset-toolbar">
-            <input id="datasetNameInput" type="text" placeholder="数据集名称（可选）">
-            <input id="datasetFileInput" type="file" accept=".h5ad">
-            <input id="datasetDimsInput" type="number" value="30" min="-1" title="导出维度，-1 表示全部">
-            <button onclick="uploadDataset()">上传并构建</button>
+            <!-- 数据集列表 -->
+            <table id="datasetTable" style="display:none;">
+                <thead><tr><th>名称</th><th>细胞数</th><th>Embedding</th><th>索引</th><th>操作</th></tr></thead>
+                <tbody id="datasetBody"></tbody>
+            </table>
+            <div id="datasetEmpty" style="color:#999; padding:20px; text-align:center;">暂无数据集，请上传 .h5ad 文件</div>
         </div>
-        <table id="datasetTable" style="display:none;">
-            <thead>
-            <tr>
-                <th>名称</th>
-                <th>细胞数</th>
-                <th>Embedding</th>
-                <th>索引</th>
-                <th>操作</th>
-            </tr>
-            </thead>
-            <tbody id="datasetBody"></tbody>
-        </table>
-    </section>
+    </div>
 
-    <section class="card">
-        <h2>查询方式</h2>
+    <!-- ========================================================== -->
+    <!-- 选项卡 2: 探索（左控 + 右散点图 + 底部结果） -->
+    <!-- ========================================================== -->
+    <div class="tab-content" id="explore-tab">
+        <div class="explore-body">
+            <!-- 左侧控制 -->
+            <div class="explore-left">
+                <div class="ctrl-group">
+                    <label>数据集</label>
+                    <select id="datasetSelect" onchange="switchDataset(this.value)"></select>
+                </div>
 
-        <div class="form-group">
-            <label>Cell ID 查询</label>
-            <input id="cellIdInput" type="text" placeholder="例如：AAACCTGAGCAGGTCA-1_2">
+                <div class="ctrl-group">
+                    <label>查询方式</label>
+                    <select id="queryMode" onchange="toggleQueryMode()">
+                        <option value="cellid">Cell ID</option>
+                        <option value="vector">向量（粘贴）</option>
+                    </select>
+                </div>
+
+                <div class="ctrl-group" id="cellIdGroup">
+                    <label>Cell ID</label>
+                    <input id="cellIdInput" placeholder="例如 AAACCTGAGCAGGTCA-1_2">
+                </div>
+
+                <div class="ctrl-group" id="vectorGroup" style="display:none;">
+                    <label>向量（逗号分隔）</label>
+                    <textarea id="vectorInput" placeholder="0.1, 0.2, 0.3, ..."></textarea>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>Top-K</label>
+                    <input id="kInput" type="number" value="10" min="1" max="100">
+                </div>
+
+                <div class="ctrl-group">
+                    <label>过滤条件</label>
+                    <div id="filtersContainer">
+                        <div class="filter-row">
+                            <select class="filter-key">
+                                <option value="cell_type">细胞类型</option>
+                                <option value="disease">疾病</option>
+                                <option value="AgeGroup">年龄组</option>
+                                <option value="sex">性别</option>
+                                <option value="Treatment">处理组</option>
+                            </select>
+                            <input class="filter-value" placeholder="值">
+                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+                        </div>
+                        <div class="filter-row">
+                            <select class="filter-key">
+                                <option value="disease">疾病</option>
+                                <option value="cell_type">细胞类型</option>
+                                <option value="AgeGroup">年龄组</option>
+                                <option value="sex">性别</option>
+                                <option value="Treatment">处理组</option>
+                            </select>
+                            <input class="filter-value" placeholder="值">
+                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+                        </div>
+                        <div class="filter-row">
+                            <select class="filter-key">
+                                <option value="AgeGroup">年龄组</option>
+                                <option value="cell_type">细胞类型</option>
+                                <option value="disease">疾病</option>
+                                <option value="sex">性别</option>
+                                <option value="Treatment">处理组</option>
+                            </select>
+                            <input class="filter-value" placeholder="值">
+                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+                        </div>
+                    </div>
+                    <button class="btn-secondary" onclick="addFilterRow()" style="width:100%; margin-top:4px;">+ 添加过滤条件</button>
+                </div>
+
+                <button class="btn-primary" id="searchBtn" onclick="executeSearch()">🔍 执行检索</button>
+                <div id="searchStatus" class="status-msg"></div>
+            </div>
+
+            <!-- 右侧：散点图 + 结果 -->
+            <div class="explore-right">
+                <div class="scatter-wrap">
+                    <div id="scatterPlot"></div>
+                    <div id="scatterLoading" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:none;">
+                        <div style="display:inline-block; width:24px; height:24px; border:3px solid #f3f3f3; border-top:3px solid #007bff; border-radius:50%; animation: spin 1s linear infinite;"></div> 加载散点图...
+                    </div>
+                    <style>
+                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                    </style>
+                </div>
+
+                <div class="result-panel" id="resultPanel">
+                    <h3>📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
+                    <div id="resultStatus" style="color:#888; font-size:0.9rem;">点击散点图或执行检索</div>
+                    <table id="resultTable" style="display:none; width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Rank</th><th>Cell ID</th><th>Distance</th>
+                                <th>细胞类型</th><th>疾病</th><th>年龄组</th><th>其他</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
+    </div>
 
-        <div class="divider">或</div>
-
-        <div class="form-group">
-            <label>Vector 向量查询</label>
-            <textarea id="vectorInput" placeholder="例如：0.1,0.2,0.3,0.4"></textarea>
+    <!-- ========================================================== -->
+    <!-- 选项卡 3: 性能评估 -->
+    <!-- ========================================================== -->
+    <div class="tab-content" id="metrics-tab">
+        <div class="metrics-page">
+            <div id="metricsStatus" style="color:#666;">加载评估报告...</div>
+            <div id="metricsContent" style="display:none;">
+                <div class="grid">
+                    <div class="card">
+                        <h3>📊 性能概览</h3>
+                        <div class="stat-grid" id="metricsOverview"></div>
+                    </div>
+                    <div class="card">
+                        <h3>📈 召回率 (Recall)</h3>
+                        <div id="recallPlot" class="plot-container"></div>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div class="card">
+                        <h3>⏱️ 响应时间对比 (ANN vs 精确)</h3>
+                        <div id="latencyPlot" class="plot-container"></div>
+                    </div>
+                    <div class="card">
+                        <h3>🚀 吞吐量 (QPS)</h3>
+                        <div id="qpsPlot" class="plot-container"></div>
+                    </div>
+                </div>
+            </div>
         </div>
-
-        <div class="form-group small">
-            <label>Top-K</label>
-            <input id="kInput" type="number" value="5" min="1" max="100">
-        </div>
-
-        <button onclick="searchCells()">开始检索</button>
-    </section>
-
-    <section class="card">
-        <h2>查询结果</h2>
-        <div id="status">等待查询...</div>
-        <div id="timeInfo"></div>
-
-        <table id="resultTable" style="display:none;">
-            <thead>
-            <tr>
-                <th>Rank</th>
-                <th>Cell ID</th>
-                <th>Distance</th>
-                <th>Metadata</th>
-            </tr>
-            </thead>
-            <tbody id="resultBody"></tbody>
-        </table>
-    </section>
+    </div>
 </div>
 
 <script>
-let activeDatasetId = null;
+// ================================================================
+// 全局状态
+// ================================================================
 let currentUser = null;
+let allDatasets = [];
+let activeDatasetId = null;
+let scatterData = null;
+let isSearching = false;
+let highlightIds = []; // 用于反向高亮
 
-document.addEventListener("DOMContentLoaded", async function() {
+// 预设选项补全
+const presetOptions = {
+    cell_type: ['hepatocyte','T cell','endothelial cell of hepatic sinusoid','Kupffer cell','macrophage','natural killer cell','B cell','mononuclear phagocyte','gamma-delta T cell','hematopoietic stem cell','cholangiocyte','erythrocyte','plasma cell','neutrophil','cycling myeloid cell','platelet','conventional dendritic cell'],
+    disease: ['Healthy','Cirrhosis','HCC'],
+    AgeGroup: ['Ped','Adult'],
+    sex: ['Male','Female'],
+    Treatment: ['Control','Treatment']
+};
+
+// ================================================================
+// 初始化
+// ================================================================
+document.addEventListener('DOMContentLoaded', async () => {
     await loadCurrentUser();
-    await loadDatasets();
+    await loadDatasetsForSelect();
+    createDatalists();
+    // 默认激活第一个选项卡（数据集）
+    switchTab('dataset');
+    // 预加载散点图（但仅在切换到 explore 时触发）
 });
 
+// 选项卡切换
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        switchTab(this.dataset.tab);
+    });
+});
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    document.getElementById(tabName + '-tab').classList.add('active');
+
+    if (tabName === 'explore' && !scatterData) {
+        loadScatterData();
+    }
+    if (tabName === 'metrics') {
+        loadMetrics();
+    }
+}
+
+// ================================================================
+// 用户
+// ================================================================
 async function loadCurrentUser() {
     try {
-        const response = await fetch("/api/auth/me");
-        if (!response.ok) {
-            window.location.href = "/login";
-            return;
-        }
-        const data = await response.json();
+        const resp = await fetch('/api/auth/me');
+        if (!resp.ok) { window.location.href = '/login'; return; }
+        const data = await resp.json();
         currentUser = data.user;
-        document.getElementById("displayUsername").textContent = data.user.username;
-        document.getElementById("displayRole").textContent = data.user.role === "admin" ? "管理员" : "用户";
-        if (data.user.role === "admin") {
-            document.getElementById("adminLink").style.display = "inline";
+        document.getElementById('displayUsername').textContent = data.user.username;
+        const roleEl = document.getElementById('displayRole');
+        if (data.user.role === 'admin') {
+            roleEl.textContent = '管理员';
+            roleEl.className = 'role-tag admin';
+            document.getElementById('adminLink').style.display = 'inline';
+        } else {
+            roleEl.textContent = '用户';
+            roleEl.className = 'role-tag';
         }
-    } catch (err) {
-        window.location.href = "/login";
-    }
+    } catch (e) { window.location.href = '/login'; }
 }
 
 async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
 }
 
-async function loadDatasets() {
-    const status = document.getElementById("datasetStatus");
-    const table = document.getElementById("datasetTable");
-    const tbody = document.getElementById("datasetBody");
-
-    status.innerText = "正在加载数据集...";
-    tbody.innerHTML = "";
-    table.style.display = "none";
-
+// ================================================================
+// 数据集管理
+// ================================================================
+async function loadDatasetsForSelect() {
     try {
-        const response = await fetch("/datasets");
-        const data = await response.json();
-        if (!response.ok) {
-            status.innerText = "加载失败：" + (data.message || data.error || "未知错误");
-            return;
-        }
-
+        const resp = await fetch('/datasets');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message);
+        allDatasets = data.datasets || [];
         activeDatasetId = data.active_dataset_id;
-        if (!data.datasets.length) {
-            status.innerText = "暂无可用数据集，请上传 .h5ad 文件。";
-            return;
-        }
-
-        status.innerText = `当前活动数据集：${activeDatasetId || "未设置"}`;
-        data.datasets.forEach(dataset => {
-            const row = document.createElement("tr");
-            const embedding = dataset.embedding ? dataset.embedding.key : "-";
-            const nObs = dataset.n_obs || "-";
-            const activeLabel = dataset.id === activeDatasetId ? "当前" : "切换";
-            const datasetId = escapeHtml(dataset.id);
-            const datasetName = escapeHtml(dataset.name || dataset.id);
-            const indexType = escapeHtml(dataset.index_type || "-");
-            const deleteButton = dataset.readonly
-                ? ""
-                : `<button class="danger" onclick="deleteDataset('${datasetId}')">删除</button>`;
-
-            row.innerHTML = `
-                <td>${datasetName}</td>
-                <td>${nObs}</td>
-                <td>${escapeHtml(embedding)}</td>
-                <td>${indexType}</td>
-                <td>
-                    <button onclick="activateDataset('${datasetId}')" ${dataset.id === activeDatasetId ? "disabled" : ""}>${activeLabel}</button>
-                    ${deleteButton}
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-
-        table.style.display = "table";
-    } catch (error) {
-        status.innerText = "请求异常：" + error.message;
-    }
+        renderDatasetTable();
+        updateSelect();
+    } catch (e) { console.error(e); }
 }
 
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll("\"", "&quot;")
-        .replaceAll("'", "&#039;");
+function renderDatasetTable() {
+    const tbody = document.getElementById('datasetBody');
+    const table = document.getElementById('datasetTable');
+    const empty = document.getElementById('datasetEmpty');
+    tbody.innerHTML = '';
+
+    if (!allDatasets.length) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    empty.style.display = 'none';
+    table.style.display = 'table';
+
+    allDatasets.forEach(ds => {
+        const tr = document.createElement('tr');
+        const isAdmin = currentUser && currentUser.role === 'admin';
+        const isDefault = ds.id === 'default';
+        const deleteBtn = (isAdmin && !isDefault)
+            ? `<button class="btn-danger" onclick="deleteDataset('${ds.id}')">删除</button>`
+            : `<button class="btn-danger" disabled>删除</button>`;
+
+        tr.innerHTML = `
+            <td>${escapeHtml(ds.name || ds.id)}</td>
+            <td>${ds.n_obs || '-'}</td>
+            <td>${ds.embedding?.key || '-'}</td>
+            <td>${ds.index_type || '-'}</td>
+            <td>
+                <button onclick="activateDataset('${ds.id}')" ${ds.id === activeDatasetId ? 'disabled' : ''}>
+                    ${ds.id === activeDatasetId ? '当前' : '切换'}
+                </button>
+                ${deleteBtn}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function updateSelect() {
+    const sel = document.getElementById('datasetSelect');
+    sel.innerHTML = '';
+    allDatasets.forEach(ds => {
+        const opt = document.createElement('option');
+        opt.value = ds.id;
+        opt.textContent = ds.name || ds.id;
+        if (ds.id === activeDatasetId) opt.selected = true;
+        sel.appendChild(opt);
+    });
 }
 
 async function uploadDataset() {
-    const status = document.getElementById("datasetStatus");
-    const fileInput = document.getElementById("datasetFileInput");
-    const name = document.getElementById("datasetNameInput").value.trim();
-    const dims = document.getElementById("datasetDimsInput").value || "30";
-
-    if (!fileInput.files.length) {
-        status.innerText = "请先选择 .h5ad 文件。";
-        return;
-    }
+    const status = document.getElementById('datasetStatus');
+    const fileInput = document.getElementById('datasetFileInput');
+    const name = document.getElementById('datasetNameInput').value.trim();
+    const dims = document.getElementById('datasetDimsInput').value || '30';
+    if (!fileInput.files.length) { status.textContent = '请选择 .h5ad 文件'; return; }
 
     const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
-    formData.append("name", name);
-    formData.append("dims", dims);
-    formData.append("activate", "true");
+    formData.append('file', fileInput.files[0]);
+    formData.append('name', name);
+    formData.append('dims', dims);
+    formData.append('activate', 'true');
 
-    status.innerText = "正在上传、导出向量并构建索引，较大的 .h5ad 可能需要等待...";
+    status.textContent = '上传中，请耐心等待（大文件可能需要几分钟）...';
     try {
-        const response = await fetch("/datasets", { method: "POST", body: formData });
-        const data = await response.json();
-        if (!response.ok) {
-            status.innerText = "上传失败：" + (data.message || data.error || "未知错误");
-            return;
+        const resp = await fetch('/datasets', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || data.error);
+        document.getElementById('datasetNameInput').value = '';
+        fileInput.value = '';
+        status.textContent = '✅ 上传成功！';
+        await loadDatasetsForSelect();
+        // 重置散点图缓存
+        scatterData = null;
+        if (document.getElementById('explore-tab').classList.contains('active')) {
+            loadScatterData();
         }
-        document.getElementById("datasetNameInput").value = "";
-        fileInput.value = "";
-        await loadDatasets();
-    } catch (error) {
-        status.innerText = "请求异常：" + error.message;
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
     }
 }
 
-async function activateDataset(datasetId) {
-    const status = document.getElementById("datasetStatus");
-    status.innerText = "正在切换数据集...";
-    const response = await fetch(`/datasets/${datasetId}/activate`, { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) {
-        status.innerText = "切换失败：" + (data.message || data.error || "未知错误");
-        return;
+async function activateDataset(id) {
+    const status = document.getElementById('datasetStatus');
+    status.textContent = '切换中...';
+    try {
+        const resp = await fetch(`/datasets/${id}/activate`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message);
+        activeDatasetId = id;
+        await loadDatasetsForSelect();
+        scatterData = null;
+        if (document.getElementById('explore-tab').classList.contains('active')) {
+            loadScatterData();
+        }
+        status.textContent = '✅ 已切换';
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
     }
-    await loadDatasets();
 }
 
-async function deleteDataset(datasetId) {
-    const status = document.getElementById("datasetStatus");
-    status.innerText = "正在删除数据集...";
-    const response = await fetch(`/datasets/${datasetId}`, { method: "DELETE" });
-    const data = await response.json();
-    if (!response.ok) {
-        status.innerText = "删除失败：" + (data.message || data.error || "未知错误");
-        return;
+async function deleteDataset(id) {
+    if (!confirm(`确认删除数据集「${id}」？此操作不可恢复！`)) return;
+    const status = document.getElementById('datasetStatus');
+    status.textContent = '删除中...';
+    try {
+        const resp = await fetch(`/datasets/${id}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || data.error);
+        status.textContent = '✅ 已删除';
+        await loadDatasetsForSelect();
+        scatterData = null;
+        if (document.getElementById('explore-tab').classList.contains('active')) {
+            loadScatterData();
+        }
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
     }
-    await loadDatasets();
 }
 
-async function searchCells() {
-    const cellId = document.getElementById("cellIdInput").value.trim();
-    const vectorText = document.getElementById("vectorInput").value.trim();
-    const k = parseInt(document.getElementById("kInput").value) || 5;
+// ================================================================
+// 过滤条件管理
+// ================================================================
+function addFilterRow() {
+    const container = document.getElementById('filtersContainer');
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+    row.innerHTML = `
+        <select class="filter-key">
+            <option value="cell_type">细胞类型</option>
+            <option value="disease">疾病</option>
+            <option value="AgeGroup">年龄组</option>
+            <option value="sex">性别</option>
+            <option value="Treatment">处理组</option>
+        </select>
+        <input class="filter-value" placeholder="值">
+        <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+    `;
+    container.appendChild(row);
+    // 绑定 datalist
+    const inp = row.querySelector('.filter-value');
+    const keySel = row.querySelector('.filter-key');
+    keySel.addEventListener('change', () => updateDatalist(inp, keySel.value));
+    updateDatalist(inp, keySel.value);
+}
 
-    const status = document.getElementById("status");
-    const timeInfo = document.getElementById("timeInfo");
-    const table = document.getElementById("resultTable");
-    const tbody = document.getElementById("resultBody");
+function removeFilterRow(btn) {
+    const row = btn.closest('.filter-row');
+    if (document.querySelectorAll('.filter-row').length > 1) row.remove();
+}
 
-    status.innerText = "正在查询...";
-    timeInfo.innerText = "";
-    tbody.innerHTML = "";
-    table.style.display = "none";
+function getFilters() {
+    const filters = {};
+    document.querySelectorAll('.filter-row').forEach(row => {
+        const key = row.querySelector('.filter-key').value.trim();
+        const val = row.querySelector('.filter-value').value.trim();
+        if (key && val) filters[key] = val;
+    });
+    return Object.keys(filters).length ? filters : null;
+}
 
-    if (cellId && vectorText) {
-        status.innerText = "错误：Cell ID 和 Vector 只能填写一个。";
-        return;
+function createDatalists() {
+    const container = document.body;
+    for (const [key, vals] of Object.entries(presetOptions)) {
+        const dl = document.createElement('datalist');
+        dl.id = key + 'Options';
+        vals.forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
+        container.appendChild(dl);
     }
-
-    if (!cellId && !vectorText) {
-        status.innerText = "错误：请填写 Cell ID 或 Vector。";
-        return;
+    document.querySelectorAll('.filter-row').forEach(row => {
+        const inp = row.querySelector('.filter-value');
+        const keySel = row.querySelector('.filter-key');
+        if (inp && keySel) updateDatalist(inp, keySel.value);
+    });
+}
+function updateDatalist(inp, key) {
+    if (presetOptions[key]) inp.setAttribute('list', key + 'Options');
+    else inp.removeAttribute('list');
+}
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('filter-key')) {
+        const row = e.target.closest('.filter-row');
+        const inp = row.querySelector('.filter-value');
+        updateDatalist(inp, e.target.value);
     }
+});
 
-    let payload = { k: k };
+// ================================================================
+// 查询模式切换
+// ================================================================
+function toggleQueryMode() {
+    const mode = document.getElementById('queryMode').value;
+    document.getElementById('cellIdGroup').style.display = (mode === 'cellid') ? 'block' : 'none';
+    document.getElementById('vectorGroup').style.display = (mode === 'vector') ? 'block' : 'none';
+}
 
-    if (cellId) {
-        payload.cell_id = cellId;
+// ================================================================
+// 散点图
+// ================================================================
+async function loadScatterData() {
+    const loading = document.getElementById('scatterLoading');
+    loading.style.display = 'block';
+    try {
+        const maxPoints = 15000;
+        const resp = await fetch(`/scatter_data?max_points=${maxPoints}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message);
+        scatterData = data;
+        renderScatterPlot(highlightIds);
+    } catch (e) {
+        document.getElementById('scatterStatus').textContent = '散点图加载失败: ' + e.message;
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+function renderScatterPlot(highlightIds = []) {
+    if (!scatterData || !scatterData.points) return;
+    const points = scatterData.points;
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const cellIds = points.map(p => p.cell_id);
+    const types = points.map(p => p.cell_type || 'Unknown');
+
+    const colors = [];
+    const sizes = [];
+    const highlightSet = new Set(highlightIds);
+
+    cellIds.forEach((id, i) => {
+        if (highlightSet.has(id)) {
+            colors.push('red');
+            sizes.push(14);
+        } else {
+            // 按类型分配颜色（简化）
+            const idx = types.indexOf(types[i]) % 20;
+            colors.push(`hsl(${idx * 18}, 70%, 55%)`);
+            sizes.push(6);
+        }
+    });
+
+    const trace = {
+        x: xs, y: ys, mode: 'markers', type: 'scatter',
+        marker: { size: sizes, color: colors, opacity: 0.85, line: { width: 0.5, color: '#333' } },
+        text: cellIds.map((id, i) => `Cell: ${id}<br>Type: ${types[i]}`),
+        hoverinfo: 'text',
+        customdata: cellIds
+    };
+
+    const layout = {
+        margin: { l: 40, r: 20, t: 20, b: 40 },
+        xaxis: { title: scatterData.basis + ' X' },
+        yaxis: { title: scatterData.basis + ' Y' },
+        hovermode: 'closest',
+        showlegend: false
+    };
+
+    Plotly.react('scatterPlot', [trace], layout, { responsive: true });
+
+    // 绑定点击（重新绑定）
+    document.getElementById('scatterPlot').on('plotly_click', function(data) {
+        if (data.points && data.points.length > 0) {
+            const cellId = data.points[0].customdata;
+            if (cellId) executeSearchFromScatter(cellId);
+        }
+    });
+}
+
+// 外部调用更新高亮
+function updateScatterHighlights(newHighlightIds) {
+    highlightIds = newHighlightIds || [];
+    renderScatterPlot(highlightIds);
+}
+
+// ================================================================
+// 检索执行（核心）
+// ================================================================
+async function executeSearch() {
+    if (isSearching) return;
+    const mode = document.getElementById('queryMode').value;
+    let cellId = null, vector = null;
+    if (mode === 'cellid') {
+        cellId = document.getElementById('cellIdInput').value.trim();
+        if (!cellId) { alert('请输入 Cell ID'); return; }
     } else {
-        payload.vector = vectorText.split(",").map(x => parseFloat(x.trim()));
+        const txt = document.getElementById('vectorInput').value.trim();
+        if (!txt) { alert('请输入向量'); return; }
+        vector = txt.split(',').map(x => parseFloat(x.trim()));
+        if (vector.some(isNaN)) { alert('向量格式错误'); return; }
     }
+    const k = parseInt(document.getElementById('kInput').value) || 10;
+    const filters = getFilters();
+    const payload = { k, filters };
+    if (cellId) payload.cell_id = cellId;
+    else payload.vector = vector;
+    await doSearch(payload);
+}
+
+async function executeSearchFromScatter(cellId) {
+    const k = parseInt(document.getElementById('kInput').value) || 10;
+    const filters = getFilters();
+    await doSearch({ cell_id: cellId, k, filters });
+}
+
+async function doSearch(payload) {
+    if (isSearching) return;
+    isSearching = true;
+    const btn = document.getElementById('searchBtn');
+    const orig = btn.textContent;
+    btn.textContent = '检索中...';
+    btn.disabled = true;
+
+    const status = document.getElementById('searchStatus');
+    const resultStatus = document.getElementById('resultStatus');
+    const table = document.getElementById('resultTable');
+    const tbody = document.getElementById('resultBody');
+    const meta = document.getElementById('resultMeta');
+
+    status.textContent = '请求中...';
+    resultStatus.textContent = '查询中...';
+    table.style.display = 'none';
+    tbody.innerHTML = '';
 
     try {
-        const response = await fetch("/search", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+        const resp = await fetch('/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || data.message || '请求失败');
 
-        const data = await response.json();
+        status.textContent = `✅ 完成 (${data.time_ms} ms)`;
+        meta.textContent = `过滤: ${data.filter_info ? JSON.stringify(data.filter_info.filters) : '无'}`;
+        resultStatus.textContent = `共 ${data.results.length} 个结果`;
 
-        if (!response.ok) {
-            status.innerText = "查询失败：" + (data.error || data.message || "未知错误");
+        if (!data.results.length) {
+            resultStatus.textContent = '无匹配结果';
             return;
         }
 
-        status.innerText = "查询成功";
-        timeInfo.innerText = `FAISS 检索耗时：${data.time_ms} ms；请求总耗时：${data.request_time_ms} ms`;
-
+        // 渲染表格
         data.results.forEach(item => {
-            const row = document.createElement("tr");
-
-            const metadata = item.metadata
-                ? Object.entries(item.metadata)
-                    .map(([key, value]) => `${key}: ${value}`)
-                    .join("; ")
-                : "";
-
-            row.innerHTML = `
+            const m = item.metadata || {};
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
                 <td>${item.rank}</td>
-                <td>${item.cell_id}</td>
-                <td>${item.distance}</td>
-                <td>${metadata}</td>
+                <td>${escapeHtml(item.cell_id)}</td>
+                <td>${item.distance !== null ? item.distance.toFixed(6) : '-'}</td>
+                <td>${escapeHtml(m.cell_type || '-')}</td>
+                <td>${escapeHtml(m.disease || '-')}</td>
+                <td>${escapeHtml(m.AgeGroup || '-')}</td>
+                <td>${Object.entries(m).filter(([k]) => !['cell_type','disease','AgeGroup'].includes(k)).map(([k,v]) => `${k}:${v}`).join('; ')}</td>
             `;
-
-            tbody.appendChild(row);
+            tbody.appendChild(tr);
         });
+        table.style.display = 'table';
+        document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        table.style.display = "table";
+        // ===== 反向高亮：在散点图中标记结果 =====
+        const resultIds = data.results.map(r => r.cell_id).filter(id => id);
+        if (resultIds.length && scatterData) {
+            // 计算实际在散点图中的结果数
+            const visibleIds = resultIds.filter(id => 
+                scatterData.points.some(p => p.cell_id === id)
+            );
+            // 更新散点图高亮
+            updateScatterHighlights(resultIds);
+            // 在状态栏显示高亮统计
+            document.getElementById('resultMeta').textContent += 
+                ` | 散点图高亮 ${visibleIds.length}/${resultIds.length} 个`;
+        }
 
-    } catch (error) {
-        status.innerText = "请求异常：" + error.message;
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+        resultStatus.textContent = '检索失败';
+    } finally {
+        isSearching = false;
+        btn.textContent = orig;
+        btn.disabled = false;
     }
 }
+
+// ================================================================
+// 性能评估
+// ================================================================
+async function loadMetrics() {
+    const status = document.getElementById('metricsStatus');
+    const content = document.getElementById('metricsContent');
+    try {
+        const resp = await fetch('/metrics');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || data.error);
+        status.style.display = 'none';
+        content.style.display = 'block';
+        renderMetrics(data);
+    } catch (e) {
+        status.textContent = '加载失败: ' + e.message;
+    }
+}
+
+function renderMetrics(data) {
+    const perf = data.performance_summary || {};
+    // 概览
+    document.getElementById('metricsOverview').innerHTML = `
+        <div class="stat-item"><div class="num">${perf.query_count || 0}</div><div class="label">查询数</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_avg_latency_ms || 0} ms</div><div class="label">平均延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_p95_latency_ms || 0} ms</div><div class="label">P95 延迟</div></div>
+        <div class="stat-item"><div class="num">${Math.round(perf.ann_qps || 0)}</div><div class="label">QPS</div></div>
+        <div class="stat-item"><div class="num">${perf.index_size_mb || 0} MB</div><div class="label">索引大小</div></div>
+        <div class="stat-item"><div class="num">${data.dataset?.total_vectors || 0}</div><div class="label">向量总数</div></div>
+    `;
+
+    // 召回率
+    const recall = data.recall || {};
+    Plotly.newPlot('recallPlot', [{
+        x: ['Recall@1', 'Recall@10', 'Recall@50'],
+        y: [recall['recall@1']||0, recall['recall@10']||0, recall['recall@50']||0],
+        type: 'bar',
+        marker: { color: ['#1f3c88','#4a63b8','#7a92d8'] }
+    }], { yaxis: { range: [0,1], title: '召回率' }, margin: { l:50, r:20, t:30, b:40 } });
+
+    // 延迟对比
+    Plotly.newPlot('latencyPlot', [{
+        x: ['ANN', 'Ground Truth'],
+        y: [perf.ann_avg_latency_ms||0, perf.ground_truth_avg_latency_ms||0],
+        type: 'bar',
+        marker: { color: ['#4CAF50', '#FF9800'] }
+    }], { yaxis: { title: '延迟 (ms)' }, margin: { l:50, r:20, t:30, b:40 } });
+
+    // QPS
+    Plotly.newPlot('qpsPlot', [{
+        x: ['ANN'],
+        y: [Math.round(perf.ann_qps||0)],
+        type: 'bar',
+        marker: { color: '#2196F3' }
+    }], { yaxis: { title: 'QPS' }, margin: { l:50, r:20, t:30, b:40 } });
+}
+
+// ================================================================
+// 工具函数
+// ================================================================
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m] || m));
+}
+
+// 暴露给 HTML onclick
+window.uploadDataset = uploadDataset;
+window.activateDataset = activateDataset;
+window.deleteDataset = deleteDataset;
+window.addFilterRow = addFilterRow;
+window.removeFilterRow = removeFilterRow;
+window.executeSearch = executeSearch;
+window.handleLogout = handleLogout;
+window.switchDataset = async function(id) {
+    if (id === activeDatasetId) return;
+    await activateDataset(id);
+};
+window.toggleQueryMode = toggleQueryMode;
 </script>
 </body>
 </html>
