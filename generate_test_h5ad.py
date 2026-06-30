@@ -46,6 +46,10 @@ X[dropout_mask] = 0.0
 # ── PCA 嵌入 ─────────────────────────────────────────
 pca = PCA(n_components=N_PCA, random_state=SEED)
 X_pca = pca.fit_transform(X).astype(np.float32)
+X_umap = X_pca[:, :2].copy()
+X_umap = (X_umap - X_umap.mean(axis=0, keepdims=True)) / (
+    X_umap.std(axis=0, keepdims=True) + 1e-6
+)
 
 # ── 细胞 ID ──────────────────────────────────────────
 cell_ids = [f"cell_{i:04d}" for i in range(N_CELLS)]
@@ -80,6 +84,7 @@ adata = ad.AnnData(
 adata.obs_names = cell_ids
 adata.var_names = gene_ids
 adata.obsm["X_pca"] = X_pca
+adata.obsm["X_umap"] = X_umap.astype(np.float32)
 
 # ── 保存 ─────────────────────────────────────────────
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +94,7 @@ print(f"[OK] Test data generated: {OUTPUT}")
 print(f"     Cells: {adata.n_obs}")
 print(f"     Genes: {adata.n_vars}")
 print(f"     PCA shape: {X_pca.shape}")
+print(f"     UMAP shape: {X_umap.shape}")
 print(f"     obs columns: {list(adata.obs.columns)}")
 print(f"     obsm keys: {list(adata.obsm_keys())}")
 print(f"     Cell type distribution:\n{adata.obs['cell_type'].value_counts().to_string()}")

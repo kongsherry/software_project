@@ -359,7 +359,7 @@ def create_app() -> Flask:
         return jsonify(dataset_manager.list_datasets())
 
     @app.post("/datasets")
-    @login_required
+    @admin_required
     def upload_dataset():
         uploaded_file = request.files.get("file")
         dataset = dataset_manager.create_from_upload(
@@ -379,14 +379,14 @@ def create_app() -> Flask:
         return jsonify({"message": "数据集上传并构建完成", "dataset": dataset}), 201
 
     @app.post("/datasets/<dataset_id>/activate")
-    @login_required
+    @admin_required
     def activate_dataset(dataset_id: str):
         dataset = dataset_manager.activate_dataset(dataset_id)
         state.clear_searcher()
         return jsonify({"message": "已切换活动数据集", "dataset": dataset})
 
     @app.delete("/datasets/<dataset_id>")
-    @login_required
+    @admin_required
     def delete_dataset(dataset_id: str):
         result = dataset_manager.delete_dataset(dataset_id)
         state.clear_searcher()
