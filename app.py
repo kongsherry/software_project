@@ -25,6 +25,12 @@ from dataset_manager import DatasetManager
 from search import AnnSearcher
 from user_manager import UserManager, DEFAULT_SESSION_SECRET
 from visualize import ScatterDataProvider
+from ai_analyzer import (
+    analyze_search_result,
+    build_dataset_schema,
+    execute_query_plan,
+    parse_natural_query,
+)
 
 DEFAULT_INDEX_PATH = os.getenv("ANN_INDEX_PATH", "indices/hnsw_M32_ef200.index")
 DEFAULT_VECTORS_PATH = os.getenv("ANN_VECTORS_PATH", "results/vectors.npy")
@@ -476,6 +482,66 @@ def create_app() -> Flask:
         total_ms = (time.perf_counter() - request_started) * 1000
         metrics = state.record_query(total_ms, float(result["time_ms"]))
         return jsonify({**result, "request_time_ms": round(total_ms, 3), "metrics": metrics})
+
+    @app.post("/ai/query")
+    @login_required
+    def ai_query():
+        request_started = time.perf_counter()
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            return jsonify({"error": "请提供自然语言查询 question"}), 400
+
+        searcher = state.ensure_searcher(dataset_manager)
+        dataset = dataset_manager.get_active_dataset()
+        schema = build_dataset_schema(searcher)
+        plan = parse_natural_query(question, schema)
+        result = execute_query_plan(searcher, plan)
+        analysis = analyze_search_result(result, dataset)
+
+        total_ms = (time.perf_counter() - request_started) * 1000
+        metrics = state.record_query(total_ms, float(result.get("time_ms", 0.0)))
+        return jsonify(
+            {
+                **result,
+                "analysis": analysis,
+                "request_time_ms": round(total_ms, 3),
+                "metrics": metrics,
+            }
+        )
+
+    @app.post("/ai/analyze")
+    @login_required
+    def ai_analyze():
+        request_started = time.perf_counter()
+        payload = request.get_json(silent=True) or {}
+        dataset = dataset_manager.get_active_dataset()
+
+        if isinstance(payload.get("search_result"), dict):
+            result = payload["search_result"]
+        else:
+            searcher = state.ensure_searcher(dataset_manager)
+            cell_id = payload.get("cell_id")
+            vector = payload.get("vector")
+            k = _parse_k(payload.get("k", 10))
+            filters = _parse_filters(payload.get("filters"))
+            if cell_id and vector is not None:
+                return jsonify({"error": "cell_id 和 vector 只能提供一个"}), 400
+            if not cell_id and vector is None:
+                return jsonify({"error": "请提供 search_result、cell_id 或 vector"}), 400
+            if cell_id:
+                result = searcher.search_by_cell_id(str(cell_id), k=k, filters=filters)
+            else:
+                result = searcher.search_by_vector(_parse_vector(vector), k=k, filters=filters)
+
+        analysis = analyze_search_result(result, dataset)
+        total_ms = (time.perf_counter() - request_started) * 1000
+        return jsonify(
+            {
+                "analysis": analysis,
+                "request_time_ms": round(total_ms, 3),
+            }
+        )
 
     return app
 
