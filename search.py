@@ -153,7 +153,26 @@ class AnnSearcher:
                     f"元数据中不存在过滤列: '{key}'，"
                     f"可用列: {list(self.metadata.columns)}"
                 )
-            mask &= (self.metadata[key].astype(str) == str(value))
+            # 数值范围过滤: value 为 {"op": ">", "value": 5} 格式
+            if isinstance(value, dict) and "op" in value and "value" in value:
+                op = value["op"]
+                val = value["value"]
+                col = pd.to_numeric(self.metadata[key], errors="coerce")
+                if op == ">":
+                    mask &= (col > val)
+                elif op == "<":
+                    mask &= (col < val)
+                elif op == ">=":
+                    mask &= (col >= val)
+                elif op == "<=":
+                    mask &= (col <= val)
+                elif op == "==":
+                    mask &= (col == val)
+                else:
+                    raise ValueError(f"不支持的操作符: {op}")
+            else:
+                # 兼容旧格式：字符串精确匹配
+                mask &= (self.metadata[key].astype(str) == str(value))
 
         filtered_indices = np.where(mask)[0]
         filtered_count = int(len(filtered_indices))

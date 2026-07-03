@@ -367,7 +367,8 @@ def create_app() -> Flask:
             name=request.form.get("name"),
             embedding=request.form.get("embedding", "X_pca"),
             dims=_parse_int(request.form.get("dims", 30), "dims"),
-            obs_cols=request.form.get("obs_cols", "cell_type,disease,AgeGroup"),
+
+            obs_cols=request.form.get("obs_cols", "cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age"),
             l2=_parse_bool(request.form.get("l2", "true")),
             index_type=request.form.get("index_type", "hnsw"),
             metric=request.form.get("metric", "l2"),
@@ -497,15 +498,24 @@ def _extract_payload() -> dict[str, Any]:
     return payload
 
 
-def _parse_filters(value: Any) -> dict[str, str] | None:
+def _parse_filters(value: Any) -> dict[str, Any] | None:
     if value is None:
         return None
     if isinstance(value, dict):
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ValueError(f"过滤条件的键必须为字符串: {k}")
-            if not isinstance(v, str):
-                raise ValueError(f"过滤条件的值必须为字符串: {v}")
+            # 支持两种格式：字符串精确匹配 或 对象范围过滤 {"op": ">", "value": 5}
+            if isinstance(v, str):
+                continue
+            if isinstance(v, dict):
+                if "op" not in v or "value" not in v:
+                    raise ValueError(f"过滤条件 '{k}' 的对象格式必须包含 'op' 和 'value'")
+                valid_ops = {">", "<", ">=", "<=", "=="}
+                if v["op"] not in valid_ops:
+                    raise ValueError(f"过滤条件 '{k}' 的操作符 '{v['op']}' 不合法，支持: {valid_ops}")
+                continue
+            raise ValueError(f"过滤条件 '{k}' 的值格式不合法，须为字符串或 {{op, value}} 对象")
         return value
     if isinstance(value, str):
         value = value.strip()

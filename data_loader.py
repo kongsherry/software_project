@@ -32,7 +32,7 @@ def export_h5ad(
 	outdir: str | Path,
 	embedding: str = "X_pca",
 	dims: int = 30,
-	obs_cols: str | list[str] = "cell_type,disease,AgeGroup",
+	obs_cols: str | list[str] = "cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age",
 	l2: bool = True,
 ) -> dict[str, Any]:
 	"""读取 .h5ad 并导出 ANN 检索所需的向量、细胞 ID 和元数据。"""
@@ -109,7 +109,7 @@ def main() -> None:
 	p.add_argument("--dims", type=int, default=30, help="取前多少维（默认 30；-1 表示不截断）")
 	p.add_argument(
 		"--obs-cols",
-		default="cell_type,disease,AgeGroup",
+		default="cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age",
 		help="导出到 metadata 的 obs 列（逗号分隔，不存在会跳过）",
 	)
 	p.set_defaults(l2=True)

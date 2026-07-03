@@ -85,6 +85,7 @@
         .ctrl-group textarea { height: 50px; resize: vertical; }
         .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
         .filter-row select { flex: 2; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row select.filter-op { flex: 1; min-width: 42px; max-width: 52px; }
         .filter-row input { flex: 3; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
         .filter-row .del-btn { background: #dc3545; color: #fff; border: none; border-radius: 4px; padding: 0 6px; cursor: pointer; font-size: 0.7rem; height: 22px; }
         .btn-primary { background: #007bff; color: #fff; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%; }
@@ -130,7 +131,7 @@
 
     <!-- ===== 选项卡 ===== -->
     <div class="tabs">
-        <button class="tab-btn active" data-tab="dataset">📁 数据集管理</button>
+        <button class="tab-btn active" data-tab="dataset" id="datasetTabBtn">📁 数据集管理</button>
         <button class="tab-btn" data-tab="explore">🔬 探索</button>
         <button class="tab-btn" data-tab="metrics">📊 性能评估</button>
     </div>
@@ -199,34 +200,22 @@
                     <label>过滤条件</label>
                     <div id="filtersContainer">
                         <div class="filter-row">
-                            <select class="filter-key">
+                            <select class="filter-key" onchange="onFilterKeyChange(this)">
                                 <option value="cell_type">细胞类型</option>
                                 <option value="disease">疾病</option>
                                 <option value="AgeGroup">年龄组</option>
                                 <option value="sex">性别</option>
                                 <option value="Treatment">处理组</option>
+                                <option value="Phase">阶段</option>
+                                <option value="seurat_clusters">Seurat聚类</option>
+                                <option value="donor_age">供体年龄</option>
                             </select>
-                            <input class="filter-value" placeholder="值">
-                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
-                        </div>
-                        <div class="filter-row">
-                            <select class="filter-key">
-                                <option value="disease">疾病</option>
-                                <option value="cell_type">细胞类型</option>
-                                <option value="AgeGroup">年龄组</option>
-                                <option value="sex">性别</option>
-                                <option value="Treatment">处理组</option>
-                            </select>
-                            <input class="filter-value" placeholder="值">
-                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
-                        </div>
-                        <div class="filter-row">
-                            <select class="filter-key">
-                                <option value="AgeGroup">年龄组</option>
-                                <option value="cell_type">细胞类型</option>
-                                <option value="disease">疾病</option>
-                                <option value="sex">性别</option>
-                                <option value="Treatment">处理组</option>
+                            <select class="filter-op" style="display:none;">
+                                <option value=">">&gt;</option>
+                                <option value="<">&lt;</option>
+                                <option value=">=">&gt;=</option>
+                                <option value="<=">&lt;=</option>
+                                <option value="==">==</option>
                             </select>
                             <input class="filter-value" placeholder="值">
                             <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
@@ -311,14 +300,20 @@ let scatterData = null;
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
 
-// 预设选项补全
+// 预设选项补全（与 generate_test_h5ad.py 保持一致）
 const presetOptions = {
-    cell_type: ['hepatocyte','T cell','endothelial cell of hepatic sinusoid','Kupffer cell','macrophage','natural killer cell','B cell','mononuclear phagocyte','gamma-delta T cell','hematopoietic stem cell','cholangiocyte','erythrocyte','plasma cell','neutrophil','cycling myeloid cell','platelet','conventional dendritic cell'],
+    cell_type: ['T-cell','B-cell','Monocyte','NK-cell','Hepatocyte'],
     disease: ['Healthy','Cirrhosis','HCC'],
-    AgeGroup: ['Ped','Adult'],
+    AgeGroup: ['Young','Middle','Senior'],
     sex: ['Male','Female'],
-    Treatment: ['Control','Treatment']
+    Treatment: ['Control','Treatment'],
+    Phase: ['G1','S','G2M'],
+    seurat_clusters: Array.from({length: 21}, (_, i) => String(i)),
+    donor_age: []
 };
+
+// 数值型字段列表（显示运算符下拉）
+const NUMERIC_FIELDS = ['seurat_clusters', 'donor_age'];
 
 // ================================================================
 // 初始化
@@ -368,9 +363,19 @@ async function loadCurrentUser() {
             roleEl.textContent = '管理员';
             roleEl.className = 'role-tag admin';
             document.getElementById('adminLink').style.display = 'inline';
+            document.getElementById('datasetTabBtn').style.display = '';
         } else {
             roleEl.textContent = '用户';
             roleEl.className = 'role-tag';
+            // 普通用户隐藏数据集管理选项卡和内容
+            document.getElementById('datasetTabBtn').style.display = 'none';
+            document.getElementById('dataset-tab').classList.remove('active');
+            document.getElementById('dataset-tab').style.display = 'none';
+            // 自动切换到探索页
+            const exploreBtn = document.querySelector('[data-tab="explore"]');
+            if (exploreBtn && !exploreBtn.classList.contains('active')) {
+                switchTab('explore');
+            }
         }
     } catch (e) { window.location.href = '/login'; }
 }
@@ -413,9 +418,10 @@ function renderDatasetTable() {
         const tr = document.createElement('tr');
         const isAdmin = currentUser && currentUser.role === 'admin';
         const isDefault = ds.id === 'default';
+        // 只有管理员才显示删除按钮，默认数据集不可删除
         const deleteBtn = (isAdmin && !isDefault)
             ? `<button class="btn-danger" onclick="deleteDataset('${ds.id}')">删除</button>`
-            : `<button class="btn-danger" disabled>删除</button>`;
+            : '';
 
         tr.innerHTML = `
             <td>${escapeHtml(ds.name || ds.id)}</td>
@@ -523,12 +529,22 @@ function addFilterRow() {
     const row = document.createElement('div');
     row.className = 'filter-row';
     row.innerHTML = `
-        <select class="filter-key">
+        <select class="filter-key" onchange="onFilterKeyChange(this)">
             <option value="cell_type">细胞类型</option>
             <option value="disease">疾病</option>
             <option value="AgeGroup">年龄组</option>
             <option value="sex">性别</option>
             <option value="Treatment">处理组</option>
+            <option value="Phase">阶段</option>
+            <option value="seurat_clusters">Seurat聚类</option>
+            <option value="donor_age">供体年龄</option>
+        </select>
+        <select class="filter-op" style="display:none;">
+            <option value=">">&gt;</option>
+            <option value="<">&lt;</option>
+            <option value=">=">&gt;=</option>
+            <option value="<=">&lt;=</option>
+            <option value="==">==</option>
         </select>
         <input class="filter-value" placeholder="值">
         <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
@@ -537,8 +553,12 @@ function addFilterRow() {
     // 绑定 datalist
     const inp = row.querySelector('.filter-value');
     const keySel = row.querySelector('.filter-key');
-    keySel.addEventListener('change', () => updateDatalist(inp, keySel.value));
+    keySel.addEventListener('change', () => {
+        updateDatalist(inp, keySel.value);
+        onFilterKeyChange(keySel);
+    });
     updateDatalist(inp, keySel.value);
+    onFilterKeyChange(keySel);
 }
 
 function removeFilterRow(btn) {
@@ -551,7 +571,20 @@ function getFilters() {
     document.querySelectorAll('.filter-row').forEach(row => {
         const key = row.querySelector('.filter-key').value.trim();
         const val = row.querySelector('.filter-value').value.trim();
-        if (key && val) filters[key] = val;
+        if (!key || !val) return;
+        const opSel = row.querySelector('.filter-op');
+        // 数值型字段：显示运算符下拉，使用对象格式
+        if (opSel && opSel.style.display !== 'none') {
+            const op = opSel.value;
+            const numVal = parseFloat(val);
+            if (isNaN(numVal)) {
+                alert(`字段 "${key}" 需要输入数值`);
+                throw new Error('invalid_numeric');
+            }
+            filters[key] = { op, value: numVal };
+        } else {
+            filters[key] = val;
+        }
     });
     return Object.keys(filters).length ? filters : null;
 }
@@ -567,8 +600,29 @@ function createDatalists() {
     document.querySelectorAll('.filter-row').forEach(row => {
         const inp = row.querySelector('.filter-value');
         const keySel = row.querySelector('.filter-key');
-        if (inp && keySel) updateDatalist(inp, keySel.value);
+        if (inp && keySel) {
+            updateDatalist(inp, keySel.value);
+            onFilterKeyChange(keySel);
+        }
     });
+}
+
+// 当过滤字段改变时，切换运算符下拉和输入类型
+function onFilterKeyChange(sel) {
+    const row = sel.closest('.filter-row');
+    const opSel = row.querySelector('.filter-op');
+    const valInp = row.querySelector('.filter-value');
+    if (NUMERIC_FIELDS.includes(sel.value)) {
+        opSel.style.display = '';
+        valInp.type = 'number';
+        valInp.placeholder = '数值';
+        valInp.removeAttribute('list');
+    } else {
+        opSel.style.display = 'none';
+        valInp.type = 'text';
+        valInp.placeholder = '值';
+        updateDatalist(valInp, sel.value);
+    }
 }
 function updateDatalist(inp, key) {
     if (presetOptions[key]) inp.setAttribute('list', key + 'Options');
@@ -579,6 +633,7 @@ document.addEventListener('change', function(e) {
         const row = e.target.closest('.filter-row');
         const inp = row.querySelector('.filter-value');
         updateDatalist(inp, e.target.value);
+        onFilterKeyChange(e.target);
     }
 });
 
@@ -685,7 +740,13 @@ async function executeSearch() {
         if (vector.some(isNaN)) { alert('向量格式错误'); return; }
     }
     const k = parseInt(document.getElementById('kInput').value) || 10;
-    const filters = getFilters();
+    let filters;
+    try {
+        filters = getFilters();
+    } catch (e) {
+        if (e.message === 'invalid_numeric') return;
+        throw e;
+    }
     const payload = { k, filters };
     if (cellId) payload.cell_id = cellId;
     else payload.vector = vector;
@@ -694,7 +755,13 @@ async function executeSearch() {
 
 async function executeSearchFromScatter(cellId) {
     const k = parseInt(document.getElementById('kInput').value) || 10;
-    const filters = getFilters();
+    let filters;
+    try {
+        filters = getFilters();
+    } catch (e) {
+        if (e.message === 'invalid_numeric') return;
+        throw e;
+    }
     await doSearch({ cell_id: cellId, k, filters });
 }
 
@@ -854,6 +921,7 @@ window.switchDataset = async function(id) {
     await activateDataset(id);
 };
 window.toggleQueryMode = toggleQueryMode;
+window.onFilterKeyChange = onFilterKeyChange;
 </script>
 </body>
 </html>
