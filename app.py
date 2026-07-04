@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
 import threading
 import time
+from collections import deque
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
@@ -72,10 +74,7 @@ class SearchState:
         self.searcher: AnnSearcher | None = None
         self.dataset_id: str | None = None
         self.load_error: str | None = None
-        self.query_count = 0
-        self.total_query_ms = 0.0
-        self.last_query_ms = 0.0
-        self.last_search_ms = 0.0
+        self._reset_metrics_unlocked()
 
     def ensure_searcher(self, dataset_manager: DatasetManager) -> AnnSearcher:
         with self._lock:
@@ -98,33 +97,77 @@ class SearchState:
         with self._lock:
             self.searcher = None
             self.dataset_id = None
+            self._reset_metrics_unlocked()
 
     def record_query(self, query_ms: float, search_ms: float) -> dict[str, float | int]:
         with self._lock:
+            now = time.time()
             self.query_count += 1
             self.total_query_ms += query_ms
+            self.total_search_ms += search_ms
             self.last_query_ms = query_ms
             self.last_search_ms = search_ms
+            self.last_query_at = now
+            if self.first_query_at is None:
+                self.first_query_at = now
+            self.query_latency_ms.append(float(query_ms))
+            self.search_latency_ms.append(float(search_ms))
             avg_ms = self.total_query_ms / self.query_count if self.query_count else 0.0
+            avg_search_ms = self.total_search_ms / self.query_count if self.query_count else 0.0
             return {
                 "query_count": self.query_count,
                 "last_query_ms": round(self.last_query_ms, 3),
                 "last_search_ms": round(self.last_search_ms, 3),
                 "avg_query_ms": round(avg_ms, 3),
+                "avg_search_ms": round(avg_search_ms, 3),
             }
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             avg_ms = self.total_query_ms / self.query_count if self.query_count else 0.0
+            avg_search_ms = self.total_search_ms / self.query_count if self.query_count else 0.0
+            p95_query_ms = (
+                float(np.percentile(list(self.query_latency_ms), 95))
+                if self.query_latency_ms
+                else 0.0
+            )
+            p95_search_ms = (
+                float(np.percentile(list(self.search_latency_ms), 95))
+                if self.search_latency_ms
+                else 0.0
+            )
+            uptime_seconds = (
+                max((self.last_query_at or time.time()) - self.first_query_at, 0.0)
+                if self.first_query_at is not None
+                else 0.0
+            )
+            qps = (self.query_count / uptime_seconds) if uptime_seconds > 0 else 0.0
             return {
                 "query_count": self.query_count,
                 "last_query_ms": round(self.last_query_ms, 3),
                 "last_search_ms": round(self.last_search_ms, 3),
                 "avg_query_ms": round(avg_ms, 3),
+                "avg_search_ms": round(avg_search_ms, 3),
+                "p95_query_ms": round(p95_query_ms, 3),
+                "p95_search_ms": round(p95_search_ms, 3),
+                "qps": round(qps, 3),
+                "first_query_at": self.first_query_at,
+                "last_query_at": self.last_query_at,
                 "ready": self.searcher is not None,
                 "dataset_id": self.dataset_id,
                 "load_error": self.load_error,
             }
+
+    def _reset_metrics_unlocked(self) -> None:
+        self.query_count = 0
+        self.total_query_ms = 0.0
+        self.total_search_ms = 0.0
+        self.last_query_ms = 0.0
+        self.last_search_ms = 0.0
+        self.first_query_at: float | None = None
+        self.last_query_at: float | None = None
+        self.query_latency_ms: deque[float] = deque(maxlen=1000)
+        self.search_latency_ms: deque[float] = deque(maxlen=1000)
 
 
 state = SearchState()
@@ -137,6 +180,7 @@ dataset_manager = DatasetManager(
 user_manager = UserManager()
 user_manager.ensure_admin_exists()
 scatter_provider = ScatterDataProvider()
+evaluation_report_lock = threading.Lock()
 
 
 # ───────────────────────── App Factory ─────────────────────────
@@ -351,7 +395,9 @@ def create_app() -> Flask:
     @app.get("/metrics")
     @login_required
     def metrics():
-        return jsonify(_load_evaluation_report())
+        dataset = dataset_manager.get_active_dataset()
+        report = _ensure_evaluation_report_for_dataset(dataset)
+        return jsonify(_build_metrics_payload(dataset, report))
 
     @app.get("/datasets")
     @login_required
@@ -481,20 +527,160 @@ def create_app() -> Flask:
     @app.get("/filter_options")
     @login_required
     def filter_options():
-        """返回过滤字段的可用取值，供前端多选下拉框动态加载。"""
-        searcher = state.ensure_searcher(dataset_manager)
-        result: dict[str, list[str]] = {}
-        for col in ("cell_type", "disease", "AgeGroup", "sex", "Treatment", "Phase"):
-            if col in searcher.metadata.columns:
-                vals = searcher.metadata[col].dropna().astype(str).unique().tolist()
-                vals.sort()
-                result[col] = vals
-        return jsonify(result)
+        dataset = dataset_manager.get_active_dataset()
+        options = _load_filter_options(
+            dataset["metadata_path"],
+            fields=["cell_type", "disease", "AgeGroup", "sex", "Treatment", "Phase"],
+        )
+        return jsonify({
+            "dataset_id": dataset["id"],
+            "options": options,
+        })
 
     return app
 
 
 # ───────────────────────── 辅助函数 ─────────────────────────
+
+def _load_filter_options(
+    metadata_path: str | Path,
+    fields: list[str] | None = None,
+) -> dict[str, list[str]]:
+    path = Path(metadata_path)
+    if not path.exists():
+        raise FileNotFoundError(f"metadata 文件不存在: {path}")
+
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            return {}
+
+        target_fields = fields or [name for name in reader.fieldnames if name != "cell_id"]
+        options: dict[str, set[str]] = {name: set() for name in target_fields}
+
+        for row in reader:
+            for name in target_fields:
+                value = row.get(name)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    options[name].add(text)
+
+    return {
+        name: sorted(values, key=lambda item: item.lower())
+        for name, values in options.items()
+    }
+
+
+def _build_metrics_payload(dataset: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    live = state.snapshot()
+    dataset_info = _build_dataset_metrics_info(dataset)
+    report_dataset_id = str(report.get("dataset", {}).get("id", "")) if isinstance(report, dict) else ""
+    has_matching_report = bool(report_dataset_id) and report_dataset_id == str(dataset["id"])
+    static_perf = report.get("performance_summary", {}) if has_matching_report else {}
+    report_path = _evaluation_report_path_for_dataset(dataset)
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "dataset": dataset_info,
+        "performance_summary": {
+            "query_count": live["query_count"],
+            "ann_avg_latency_ms": live["avg_search_ms"],
+            "ann_p95_latency_ms": live["p95_search_ms"],
+            "ann_qps": live["qps"],
+            "index_size_mb": dataset_info["index_size_mb"],
+            "ground_truth_avg_latency_ms": static_perf.get("ground_truth_avg_latency_ms"),
+            "avg_request_latency_ms": live["avg_query_ms"],
+            "p95_request_latency_ms": live["p95_query_ms"],
+            "last_query_ms": live["last_query_ms"],
+            "last_search_ms": live["last_search_ms"],
+        },
+        "recall": report.get("recall", {}) if has_matching_report else {},
+        "ann_search": report.get("ann_search", {}) if has_matching_report else {},
+        "ground_truth": report.get("ground_truth", {}) if has_matching_report else {},
+        "live_metrics": live,
+        "evaluation_report": {
+            "available": has_matching_report,
+            "path": str(report_path),
+            "dataset_id": report_dataset_id or None,
+            "generated_at": report.get("generated_at") if has_matching_report else None,
+        },
+    }
+
+
+def _build_dataset_metrics_info(dataset: dict[str, Any]) -> dict[str, Any]:
+    summary = _load_json_file(dataset.get("summary_path"))
+    embedding = summary.get("embedding", {}) if isinstance(summary, dict) else {}
+    embedding_shape = embedding.get("shape", []) if isinstance(embedding, dict) else []
+    index_path = Path(str(dataset["index_path"]))
+
+    total_vectors = dataset.get("n_obs") or summary.get("n_obs") or 0
+    dimension = summary.get("dimension") or (embedding_shape[1] if len(embedding_shape) >= 2 else 0)
+
+    return {
+        "id": str(dataset["id"]),
+        "name": str(dataset.get("name", dataset["id"])),
+        "metric": str(dataset.get("metric", "unknown")),
+        "index_type": str(dataset.get("index_type", "unknown")),
+        "total_vectors": int(total_vectors) if total_vectors else 0,
+        "dimension": int(dimension) if dimension else 0,
+        "index_size_mb": round(index_path.stat().st_size / (1024 * 1024), 3) if index_path.exists() else 0.0,
+    }
+
+
+def _evaluation_report_path_for_dataset(dataset: dict[str, Any]) -> Path:
+    if str(dataset.get("id")) == "default":
+        return DEFAULT_EVALUATION_REPORT_PATH
+    summary_path = dataset.get("summary_path")
+    if summary_path:
+        return Path(str(summary_path)).with_name("evaluation_report.json")
+    return DEFAULT_EVALUATION_REPORT_PATH
+
+
+def _ensure_evaluation_report_for_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
+    report_path = _evaluation_report_path_for_dataset(dataset)
+    report = _load_json_file(report_path)
+    if str(report.get("dataset", {}).get("id", "")) == str(dataset["id"]):
+        return report
+
+    with evaluation_report_lock:
+        report = _load_json_file(report_path)
+        if str(report.get("dataset", {}).get("id", "")) == str(dataset["id"]):
+            return report
+
+        from evaluate import (
+            DEFAULT_RANDOM_SEED,
+            DEFAULT_SAMPLE_SIZE,
+            _ensure_faiss_available,
+            evaluate_dataset,
+        )
+
+        _ensure_faiss_available()
+        generated = evaluate_dataset(
+            dataset=dataset,
+            sample_size=DEFAULT_SAMPLE_SIZE,
+            seed=DEFAULT_RANDOM_SEED,
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(generated, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return generated
+
+
+def _load_json_file(path_value: Any) -> dict[str, Any]:
+    if not path_value:
+        return {}
+    path = Path(str(path_value))
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
 
 def _extract_payload() -> dict[str, Any]:
     if request.method == "GET":

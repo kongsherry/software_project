@@ -373,6 +373,7 @@ let activeDatasetId = null;
 let scatterData = null;
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
+let metricsRefreshTimer = null;
 
 // 预设选项补全（与 generate_test_h5ad.py 保持一致，作为初始占位，启动后会从后端动态覆盖）
 const presetOptions = {
@@ -392,8 +393,8 @@ async function loadFilterOptions() {
         const resp = await fetch('/filter_options');
         if (!resp.ok) return;
         const data = await resp.json();
-        // 覆盖硬编码值
-        Object.assign(presetOptions, data);
+        const options = data.options || data;
+        Object.assign(presetOptions, options);
         // 重新刷新所有可见的多选下拉框
         document.querySelectorAll('.filter-row').forEach(row => {
             const keySel = row.querySelector('.filter-key');
@@ -443,7 +444,9 @@ function switchTab(tabName) {
         loadScatterData();
     }
     if (tabName === 'metrics') {
-        loadMetrics();
+        startMetricsRefresh();
+    } else {
+        stopMetricsRefresh();
     }
 }
 
@@ -1050,50 +1053,100 @@ async function loadMetrics() {
         const resp = await fetch('/metrics');
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.message || data.error);
-        status.style.display = 'none';
+        status.style.display = 'block';
+        status.textContent = buildMetricsStatusText(data);
         content.style.display = 'block';
         renderMetrics(data);
     } catch (e) {
+        content.style.display = 'none';
+        status.style.display = 'block';
         status.textContent = '加载失败: ' + e.message;
     }
 }
 
+function startMetricsRefresh() {
+    loadMetrics();
+    if (metricsRefreshTimer) return;
+    metricsRefreshTimer = setInterval(() => {
+        if (document.getElementById('metrics-tab').classList.contains('active')) {
+            loadMetrics();
+        }
+    }, 3000);
+}
+
+function stopMetricsRefresh() {
+    if (!metricsRefreshTimer) return;
+    clearInterval(metricsRefreshTimer);
+    metricsRefreshTimer = null;
+}
+
+function buildMetricsStatusText(data) {
+    const live = data.live_metrics || {};
+    const report = data.evaluation_report || {};
+    const parts = [`实时刷新中`];
+    if (live.last_query_at) {
+        parts.push(`最近查询: ${new Date(live.last_query_at * 1000).toLocaleTimeString()}`);
+    }
+    if (report.available) {
+        parts.push(`Recall 来自离线评估`);
+    } else {
+        parts.push(`Recall 暂无匹配评估报告`);
+    }
+    return parts.join(' | ');
+}
+
 function renderMetrics(data) {
     const perf = data.performance_summary || {};
+    const report = data.evaluation_report || {};
+    const recall = data.recall || {};
+    const recallValues = [recall['recall@1'] || 0, recall['recall@10'] || 0, recall['recall@50'] || 0];
     // 概览
     document.getElementById('metricsOverview').innerHTML = `
         <div class="stat-item"><div class="num">${perf.query_count || 0}</div><div class="label">查询数</div></div>
-        <div class="stat-item"><div class="num">${perf.ann_avg_latency_ms || 0} ms</div><div class="label">平均延迟</div></div>
-        <div class="stat-item"><div class="num">${perf.ann_p95_latency_ms || 0} ms</div><div class="label">P95 延迟</div></div>
-        <div class="stat-item"><div class="num">${Math.round(perf.ann_qps || 0)}</div><div class="label">QPS</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_avg_latency_ms || 0} ms</div><div class="label">平均检索延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_p95_latency_ms || 0} ms</div><div class="label">P95 检索延迟</div></div>
+        <div class="stat-item"><div class="num">${Number(perf.ann_qps || 0).toFixed(2)}</div><div class="label">实时 QPS</div></div>
         <div class="stat-item"><div class="num">${perf.index_size_mb || 0} MB</div><div class="label">索引大小</div></div>
         <div class="stat-item"><div class="num">${data.dataset?.total_vectors || 0}</div><div class="label">向量总数</div></div>
+        <div class="stat-item"><div class="num">${perf.avg_request_latency_ms || 0} ms</div><div class="label">平均请求延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.p95_request_latency_ms || 0} ms</div><div class="label">P95 请求延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.last_search_ms || 0} ms</div><div class="label">最近检索延迟</div></div>
     `;
 
-    // 召回率
-    const recall = data.recall || {};
-    Plotly.newPlot('recallPlot', [{
+    Plotly.react('recallPlot', [{
         x: ['Recall@1', 'Recall@10', 'Recall@50'],
-        y: [recall['recall@1']||0, recall['recall@10']||0, recall['recall@50']||0],
+        y: recallValues,
         type: 'bar',
         marker: { color: ['#1f3c88','#4a63b8','#7a92d8'] }
-    }], { yaxis: { range: [0,1], title: '召回率' }, margin: { l:50, r:20, t:30, b:40 } });
+    }], {
+        yaxis: { range: [0,1], title: '召回率' },
+        margin: { l:50, r:20, t:30, b:40 },
+        title: report.available ? '离线评估 Recall@K' : '暂无匹配的离线 Recall 报告'
+    });
 
-    // 延迟对比
-    Plotly.newPlot('latencyPlot', [{
-        x: ['ANN', 'Ground Truth'],
-        y: [perf.ann_avg_latency_ms||0, perf.ground_truth_avg_latency_ms||0],
+    Plotly.react('latencyPlot', [{
+        x: ['实时检索', '实时请求', 'Ground Truth'],
+        y: [
+            perf.ann_avg_latency_ms || 0,
+            perf.avg_request_latency_ms || 0,
+            perf.ground_truth_avg_latency_ms || 0,
+        ],
         type: 'bar',
-        marker: { color: ['#4CAF50', '#FF9800'] }
-    }], { yaxis: { title: '延迟 (ms)' }, margin: { l:50, r:20, t:30, b:40 } });
+        marker: { color: ['#4CAF50', '#2196F3', '#FF9800'] }
+    }], {
+        yaxis: { title: '延迟 (ms)' },
+        margin: { l:50, r:20, t:30, b:40 }
+    });
 
-    // QPS
-    Plotly.newPlot('qpsPlot', [{
-        x: ['ANN'],
-        y: [Math.round(perf.ann_qps||0)],
+    Plotly.react('qpsPlot', [{
+        x: ['实时 QPS'],
+        y: [Number(Number(perf.ann_qps || 0).toFixed(2))],
         type: 'bar',
         marker: { color: '#2196F3' }
-    }], { yaxis: { title: 'QPS' }, margin: { l:50, r:20, t:30, b:40 } });
+    }], {
+        yaxis: { title: 'QPS' },
+        margin: { l:50, r:20, t:30, b:40 }
+    });
 }
 
 // ================================================================
