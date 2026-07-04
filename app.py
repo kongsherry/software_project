@@ -478,6 +478,19 @@ def create_app() -> Flask:
         metrics = state.record_query(total_ms, float(result["time_ms"]))
         return jsonify({**result, "request_time_ms": round(total_ms, 3), "metrics": metrics})
 
+    @app.get("/filter_options")
+    @login_required
+    def filter_options():
+        """返回过滤字段的可用取值，供前端多选下拉框动态加载。"""
+        searcher = state.ensure_searcher(dataset_manager)
+        result: dict[str, list[str]] = {}
+        for col in ("cell_type", "disease", "AgeGroup", "sex", "Treatment", "Phase"):
+            if col in searcher.metadata.columns:
+                vals = searcher.metadata[col].dropna().astype(str).unique().tolist()
+                vals.sort()
+                result[col] = vals
+        return jsonify(result)
+
     return app
 
 
@@ -505,8 +518,14 @@ def _parse_filters(value: Any) -> dict[str, Any] | None:
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ValueError(f"过滤条件的键必须为字符串: {k}")
-            # 支持两种格式：字符串精确匹配 或 对象范围过滤 {"op": ">", "value": 5}
+            # 支持三种格式：字符串精确匹配 / 列表多选 (OR) / 对象范围过滤 {"op": ">", "value": 5}
             if isinstance(v, str):
+                continue
+            if isinstance(v, list):
+                if not v:
+                    raise ValueError(f"过滤条件 '{k}' 的列表不能为空")
+                if not all(isinstance(item, str) for item in v):
+                    raise ValueError(f"过滤条件 '{k}' 的列表元素必须为字符串")
                 continue
             if isinstance(v, dict):
                 if "op" not in v or "value" not in v:
@@ -515,7 +534,7 @@ def _parse_filters(value: Any) -> dict[str, Any] | None:
                 if v["op"] not in valid_ops:
                     raise ValueError(f"过滤条件 '{k}' 的操作符 '{v['op']}' 不合法，支持: {valid_ops}")
                 continue
-            raise ValueError(f"过滤条件 '{k}' 的值格式不合法，须为字符串或 {{op, value}} 对象")
+            raise ValueError(f"过滤条件 '{k}' 的值格式不合法，须为字符串、列表或 {{op, value}} 对象")
         return value
     if isinstance(value, str):
         value = value.strip()

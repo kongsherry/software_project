@@ -142,6 +142,11 @@ class AnnSearcher:
 
         - 预过滤：过滤后细胞数 < 1000，构建 FAISS IDMap 子集索引进行精确搜索。
         - 后过滤：过滤后细胞数 >= 1000，先取更多候选（max(k*3, 200)），再按条件筛选补全至 K 个。
+
+        filters 支持三种值格式：
+        - 字符串: 精确匹配 (向后兼容)
+        - 列表: 多选 OR 匹配，如 {"cell_type": ["T-cell", "B-cell"]}
+        - 字典: 数值范围，如 {"donor_age": {"op": ">", "value": 50}}
         """
         start = time.perf_counter()
 
@@ -170,6 +175,10 @@ class AnnSearcher:
                     mask &= (col == val)
                 else:
                     raise ValueError(f"不支持的操作符: {op}")
+            elif isinstance(value, list):
+                # 多选过滤 (OR 逻辑): 匹配列表中任意一个值
+                str_values = [str(v) for v in value]
+                mask &= (self.metadata[key].astype(str).isin(str_values))
             else:
                 # 兼容旧格式：字符串精确匹配
                 mask &= (self.metadata[key].astype(str) == str(value))

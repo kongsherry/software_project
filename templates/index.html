@@ -83,9 +83,9 @@
             width: 100%; padding: 5px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.9rem;
         }
         .ctrl-group textarea { height: 50px; resize: vertical; }
-        .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
-        .filter-row select { flex: 2; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
-        .filter-row select.filter-op { flex: 1; min-width: 42px; max-width: 52px; }
+        .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; flex-wrap: wrap; }
+        .filter-row select.filter-key { flex: 0 0 auto; min-width: 90px; padding: 3px 6px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row select.filter-op { flex: 0 0 auto; min-width: 42px; max-width: 52px; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
         .filter-row input { flex: 3; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
         .filter-row .del-btn { background: #dc3545; color: #fff; border: none; border-radius: 4px; padding: 0 6px; cursor: pointer; font-size: 0.7rem; height: 22px; }
         .btn-primary { background: #007bff; color: #fff; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%; }
@@ -106,6 +106,70 @@
         .metrics-page .stat-item .num { font-size: 1.6rem; font-weight: 700; color: #007bff; }
         .metrics-page .stat-item .label { font-size: 0.8rem; color: #666; }
         .plot-container { width: 100%; height: 300px; }
+
+        /* ===== 多选下拉框 ===== */
+        .ms-wrapper { flex: 3; position: relative; min-width: 220px; }
+        .ms-display {
+            width: 100%; padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc;
+            font-size: 0.8rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+            background: #fff; min-height: 22px; box-sizing: border-box;
+        }
+        .ms-display:hover { border-color: #999; }
+        .ms-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
+        .ms-text.has-selection { color: #333; }
+        .ms-arrow { font-size: 0.7rem; color: #999; margin-left: 4px; flex-shrink: 0; }
+        .ms-dropdown {
+            display: none; position: absolute; top: 100%; left: 0; z-index: 1000;
+            background: #fff; border: 1px solid #ccc; border-radius: 4px;
+            max-height: 240px;
+            min-width: 360px;
+            max-width: 90vw;
+            overflow-y: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+            white-space: nowrap;
+            text-align: left;
+        }
+        .ms-dropdown label {
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr);
+            align-items: center;
+            justify-content: start;
+            column-gap: 6px;
+            padding: 6px 10px 6px 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin: 0;
+            line-height: 1.2;
+            white-space: nowrap;
+            box-sizing: border-box;
+            width: 100%;
+            text-align: left;
+        }
+        .ms-dropdown label:hover { background: #f0f4ff; }
+        .ms-dropdown input[type="checkbox"] {
+            appearance: auto;
+            -webkit-appearance: checkbox;
+            display: block;
+            width: 14px;
+            min-width: 14px;
+            height: 14px;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            background: transparent;
+            flex: none;
+            margin: 0;
+            cursor: pointer;
+            accent-color: #4a90e2;
+            justify-self: start;
+            align-self: center;
+        }
+        .ms-dropdown label > span {
+            min-width: 0;
+            margin-left: 0;
+            text-align: left;
+            justify-self: start;
+        }
 
         /* ===== 响应式 ===== */
         @media (max-width: 768px) {
@@ -218,6 +282,13 @@
                                 <option value="==">==</option>
                             </select>
                             <input class="filter-value" placeholder="值">
+                            <div class="ms-wrapper" style="display:none;">
+                                <div class="ms-display" onclick="toggleMultiSelect(this)">
+                                    <span class="ms-text">点击选择...</span>
+                                    <span class="ms-arrow">▾</span>
+                                </div>
+                                <div class="ms-dropdown"></div>
+                            </div>
                             <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
                         </div>
                     </div>
@@ -241,7 +312,10 @@
                 </div>
 
                 <div class="result-panel" id="resultPanel">
-                    <h3>📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                        <h3 style="margin:0; font-size:1rem;">📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
+                        <button class="btn-secondary" onclick="exportCSV()" id="exportCsvBtn" style="display:none;">📥 导出 CSV</button>
+                    </div>
                     <div id="resultStatus" style="color:#888; font-size:0.9rem;">点击散点图或执行检索</div>
                     <table id="resultTable" style="display:none; width:100%;">
                         <thead>
@@ -300,7 +374,7 @@ let scatterData = null;
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
 
-// 预设选项补全（与 generate_test_h5ad.py 保持一致）
+// 预设选项补全（与 generate_test_h5ad.py 保持一致，作为初始占位，启动后会从后端动态覆盖）
 const presetOptions = {
     cell_type: ['T-cell','B-cell','Monocyte','NK-cell','Hepatocyte'],
     disease: ['Healthy','Cirrhosis','HCC'],
@@ -312,8 +386,32 @@ const presetOptions = {
     donor_age: []
 };
 
+// 从后端动态加载过滤字段的可选值，确保与实际数据一致
+async function loadFilterOptions() {
+    try {
+        const resp = await fetch('/filter_options');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        // 覆盖硬编码值
+        Object.assign(presetOptions, data);
+        // 重新刷新所有可见的多选下拉框
+        document.querySelectorAll('.filter-row').forEach(row => {
+            const keySel = row.querySelector('.filter-key');
+            const msWrap = row.querySelector('.ms-wrapper');
+            if (msWrap && msWrap.style.display !== 'none' && keySel) {
+                populateMultiSelect(msWrap, keySel.value);
+            }
+        });
+    } catch (e) {
+        console.warn('加载过滤选项失败:', e);
+    }
+}
+
 // 数值型字段列表（显示运算符下拉）
 const NUMERIC_FIELDS = ['seurat_clusters', 'donor_age'];
+
+// 多选字段列表（使用 checkbox 下拉框，OR 逻辑）
+const MULTI_SELECT_FIELDS = ['cell_type', 'disease'];
 
 // ================================================================
 // 初始化
@@ -322,6 +420,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadCurrentUser();
     await loadDatasetsForSelect();
     createDatalists();
+    await loadFilterOptions();  // 加载真实数据中的过滤选项
     // 默认激活第一个选项卡（数据集）
     switchTab('dataset');
     // 预加载散点图（但仅在切换到 explore 时触发）
@@ -547,6 +646,13 @@ function addFilterRow() {
             <option value="==">==</option>
         </select>
         <input class="filter-value" placeholder="值">
+        <div class="ms-wrapper" style="display:none;">
+            <div class="ms-display" onclick="toggleMultiSelect(this)">
+                <span class="ms-text">点击选择...</span>
+                <span class="ms-arrow">▾</span>
+            </div>
+            <div class="ms-dropdown"></div>
+        </div>
         <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
     `;
     container.appendChild(row);
@@ -570,10 +676,24 @@ function getFilters() {
     const filters = {};
     document.querySelectorAll('.filter-row').forEach(row => {
         const key = row.querySelector('.filter-key').value.trim();
-        const val = row.querySelector('.filter-value').value.trim();
-        if (!key || !val) return;
+        if (!key) return;
+
+        const msWrap = row.querySelector('.ms-wrapper');
+        const valInp = row.querySelector('.filter-value');
+
+        // 多选模式：收集 checkbox 值为数组
+        if (msWrap && msWrap.style.display !== 'none') {
+            const selected = getMultiSelectValues(msWrap);
+            if (selected.length > 0) {
+                filters[key] = selected;  // 传数组，后端用 isin (OR 逻辑)
+            }
+            return;
+        }
+
+        // 文本 / 数值模式
+        const val = valInp.value.trim();
+        if (!val) return;
         const opSel = row.querySelector('.filter-op');
-        // 数值型字段：显示运算符下拉，使用对象格式
         if (opSel && opSel.style.display !== 'none') {
             const op = opSel.value;
             const numVal = parseFloat(val);
@@ -612,21 +732,95 @@ function onFilterKeyChange(sel) {
     const row = sel.closest('.filter-row');
     const opSel = row.querySelector('.filter-op');
     const valInp = row.querySelector('.filter-value');
-    if (NUMERIC_FIELDS.includes(sel.value)) {
+    const msWrap = row.querySelector('.ms-wrapper');
+
+    if (MULTI_SELECT_FIELDS.includes(sel.value)) {
+        // 多选模式：隐藏运算符和文本输入，显示 checkbox 下拉
+        opSel.style.display = 'none';
+        valInp.style.display = 'none';
+        if (msWrap) {
+            msWrap.style.display = '';
+            populateMultiSelect(msWrap, sel.value);
+        }
+    } else if (NUMERIC_FIELDS.includes(sel.value)) {
         opSel.style.display = '';
         valInp.type = 'number';
         valInp.placeholder = '数值';
+        valInp.style.display = '';
         valInp.removeAttribute('list');
+        if (msWrap) msWrap.style.display = 'none';
     } else {
         opSel.style.display = 'none';
         valInp.type = 'text';
         valInp.placeholder = '值';
+        valInp.style.display = '';
         updateDatalist(valInp, sel.value);
+        if (msWrap) msWrap.style.display = 'none';
     }
 }
 function updateDatalist(inp, key) {
     if (presetOptions[key]) inp.setAttribute('list', key + 'Options');
     else inp.removeAttribute('list');
+}
+
+// ================================================================
+// 多选下拉框 (checkbox dropdown)
+// ================================================================
+function populateMultiSelect(msWrap, key) {
+    const dropdown = msWrap.querySelector('.ms-dropdown');
+    const options = presetOptions[key] || [];
+    dropdown.innerHTML = '';
+    options.forEach(val => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = val;
+        const span = document.createElement('span');
+        span.textContent = val;
+        cb.addEventListener('change', () => updateMultiSelectDisplay(msWrap));
+        label.appendChild(cb);
+        label.appendChild(span);
+        dropdown.appendChild(label);
+    });
+    updateMultiSelectDisplay(msWrap);
+}
+
+function toggleMultiSelect(displayEl) {
+    const msWrap = displayEl.closest('.ms-wrapper');
+    const dropdown = msWrap.querySelector('.ms-dropdown');
+    const isVisible = dropdown.style.display !== 'none';
+    // 先关闭所有其他下拉
+    document.querySelectorAll('.ms-dropdown').forEach(d => d.style.display = 'none');
+    if (!isVisible) {
+        dropdown.style.display = 'block';
+        // 点击外部关闭
+        setTimeout(() => {
+            const handler = function(e) {
+                if (!msWrap.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                    document.removeEventListener('click', handler);
+                }
+            };
+            document.addEventListener('click', handler);
+        }, 0);
+    }
+}
+
+function getMultiSelectValues(msWrap) {
+    const checkboxes = msWrap.querySelectorAll('.ms-dropdown input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+function updateMultiSelectDisplay(msWrap) {
+    const selected = getMultiSelectValues(msWrap);
+    const textEl = msWrap.querySelector('.ms-text');
+    if (selected.length === 0) {
+        textEl.textContent = '点击选择...';
+        textEl.classList.remove('has-selection');
+    } else {
+        textEl.textContent = `已选 ${selected.length} 项: ${selected.join(', ')}`;
+        textEl.classList.add('has-selection');
+    }
 }
 document.addEventListener('change', function(e) {
     if (e.target.classList.contains('filter-key')) {
@@ -783,6 +977,7 @@ async function doSearch(payload) {
     resultStatus.textContent = '查询中...';
     table.style.display = 'none';
     tbody.innerHTML = '';
+    document.getElementById('exportCsvBtn').style.display = 'none';
 
     try {
         const resp = await fetch('/search', {
@@ -818,6 +1013,7 @@ async function doSearch(payload) {
             tbody.appendChild(tr);
         });
         table.style.display = 'table';
+        document.getElementById('exportCsvBtn').style.display = '';
         document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         // ===== 反向高亮：在散点图中标记结果 =====
@@ -908,6 +1104,48 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m] || m));
 }
 
+// ================================================================
+// CSV 导出（纯前端）
+// ================================================================
+function exportCSV() {
+    const tbody = document.getElementById('resultBody');
+    const rows = tbody.querySelectorAll('tr');
+    if (!rows.length) { alert('无数据可导出'); return; }
+
+    // 从表头提取列名
+    const headers = [];
+    document.querySelectorAll('#resultTable thead th').forEach(th => {
+        headers.push(th.textContent.trim());
+    });
+
+    // 构建 CSV 文本
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(cell => {
+            let val = cell.textContent.trim();
+            // 含逗号、引号或换行的值需要用双引号包裹并转义
+            if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+                val = '"' + val.replace(/"/g, '""') + '"';
+            }
+            return val;
+        });
+        csv += rowData.join(',') + '\n';
+    });
+
+    // 触发下载（带 BOM 头确保 Excel 正确识别 UTF-8）
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    a.href = url;
+    a.download = `search_results_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // 暴露给 HTML onclick
 window.uploadDataset = uploadDataset;
 window.activateDataset = activateDataset;
@@ -922,6 +1160,8 @@ window.switchDataset = async function(id) {
 };
 window.toggleQueryMode = toggleQueryMode;
 window.onFilterKeyChange = onFilterKeyChange;
+window.toggleMultiSelect = toggleMultiSelect;
+window.exportCSV = exportCSV;
 </script>
 </body>
 </html>
