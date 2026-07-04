@@ -409,18 +409,12 @@ def create_app() -> Flask:
     def upload_dataset():
         uploaded_file = request.files.get("file")
         dataset = dataset_manager.create_from_upload(
-            uploaded_file=uploaded_file,
+            uploaded_file=request.files.get("file"),
             name=request.form.get("name"),
-            embedding=request.form.get("embedding", "X_pca"),
             dims=_parse_int(request.form.get("dims", 30), "dims"),
-
-            obs_cols=request.form.get("obs_cols", "cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age"),
-            l2=_parse_bool(request.form.get("l2", "true")),
             index_type=request.form.get("index_type", "hnsw"),
-            metric=request.form.get("metric", "l2"),
-            M=_parse_int(request.form.get("M", 32), "M"),
-            ef=_parse_int(request.form.get("ef", 200), "ef"),
-            activate=_parse_bool(request.form.get("activate", "true")),
+            nlist=_parse_optional_int(request.form.get("nlist"), "nlist"),
+            activate=_parse_bool(request.form.get("activate", True)),
         )
         state.clear_searcher()
         return jsonify({"message": "数据集上传并构建完成", "dataset": dataset}), 201
@@ -477,11 +471,13 @@ def create_app() -> Flask:
 
         k = _parse_k(payload.get("k", 10))
         filters = _parse_filters(payload.get("filters"))
+        search_params = _parse_search_params(payload.get("search_params"))
 
         result = searcher.search_by_cell_id(
             str(cell_id),
             k=k,
             filters=filters,
+            search_params=search_params,
         )
 
         total_ms = (time.perf_counter() - request_started) * 1000
@@ -509,17 +505,28 @@ def create_app() -> Flask:
         vector = payload.get("vector")
         k = _parse_k(payload.get("k", 10))
         filters = _parse_filters(payload.get("filters"))
+        search_params = _parse_search_params(payload.get("search_params"))
         if cell_id and vector is not None:
             return jsonify({"error": "cell_id 和 vector 只能提供一个"}), 400
         if not cell_id and vector is None:
             return jsonify({"error": "请提供 cell_id 或 vector"}), 400
         if cell_id:
             app.logger.info("search request by cell_id=%s, k=%s, filters=%s", cell_id, k, filters)
-            result = searcher.search_by_cell_id(str(cell_id), k=k, filters=filters)
+            result = searcher.search_by_cell_id(
+                str(cell_id),
+                k=k,
+                filters=filters,
+                search_params=search_params,
+            )
         else:
             query_vector = _parse_vector(vector)
             app.logger.info("search request by vector, k=%s, dim=%s, filters=%s", k, query_vector.shape[-1], filters)
-            result = searcher.search_by_vector(query_vector, k=k, filters=filters)
+            result = searcher.search_by_vector(
+                query_vector,
+                k=k,
+                filters=filters,
+                search_params=search_params,
+            )
         total_ms = (time.perf_counter() - request_started) * 1000
         metrics = state.record_query(total_ms, float(result["time_ms"]))
         return jsonify({**result, "request_time_ms": round(total_ms, 3), "metrics": metrics})
@@ -696,6 +703,38 @@ def _extract_payload() -> dict[str, Any]:
         raise ValueError("请求体必须是 JSON 对象")
     return payload
 
+def _parse_search_params(value: Any) -> dict[str, Any] | None:
+    """解析前端 ANN 精度控制参数。"""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"search_params 不是合法 JSON: {exc}") from exc
+
+    if not isinstance(value, dict):
+        raise ValueError("search_params 必须是 JSON 对象")
+
+    result: dict[str, Any] = {}
+
+    if "precision_pct" in value and value["precision_pct"] is not None:
+        pct = float(value["precision_pct"])
+        result["precision_pct"] = max(0.0, min(100.0, pct))
+
+    for key in ("ef_search", "nprobe"):
+        if key in value and value[key] is not None:
+            iv = int(value[key])
+            if iv <= 0:
+                raise ValueError(f"{key} 必须大于 0")
+            result[key] = iv
+
+    return result or None
+
 
 def _parse_filters(value: Any) -> dict[str, Any] | None:
     if value is None:
@@ -749,6 +788,16 @@ def _parse_k(value: Any) -> int:
 
 
 def _parse_int(value: Any, name: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是整数") from exc
+    
+def _parse_optional_int(value: Any, name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
     try:
         return int(value)
     except (TypeError, ValueError) as exc:

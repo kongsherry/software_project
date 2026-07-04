@@ -2,9 +2,22 @@ import argparse
 import time
 import os
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import faiss
+
+def suggest_nlist(n_vectors: int) -> int:
+    """根据数据规模自动估计 IVF 聚类中心数量。"""
+    if n_vectors <= 0:
+        return 32
+    return int(min(4096, max(32, round(np.sqrt(n_vectors) * 4))))
+
+
+def ensure_faiss_vectors(vectors: np.ndarray) -> np.ndarray:
+    """确保向量满足 FAISS 需要的 float32 + C 连续内存。"""
+    vectors = np.asarray(vectors, dtype=np.float32)
+    return np.ascontiguousarray(vectors)
 
 class AnnIndexBuilder:
     """
@@ -43,6 +56,65 @@ class AnnIndexBuilder:
         
         print(f"[+] HNSW 索引构建完成! 耗时: {time.time() - start_time:.3f} 秒")
         print(f"    当前索引包含总向量数: {self.index.ntotal}")
+
+    def build_ivf_hnsw_index(
+        self,
+        vectors: np.ndarray,
+        nlist: Optional[int] = None,
+        hnsw_m: int = 32,
+        efConstruction: int = 200,
+        train_size: int = 20000,
+    ) -> None:
+        """
+        构建 IVF + HNSW 混合索引。
+
+        结构：
+        - coarse quantizer 使用 HNSW
+        - inverted lists 使用 IVF Flat
+
+        适合中大规模数据集，兼顾速度和召回率。
+        """
+        vectors = ensure_faiss_vectors(vectors)
+
+        if self.dim is None:
+            self.dim = vectors.shape[1]
+
+        if nlist is None:
+            nlist = suggest_nlist(len(vectors))
+
+        nlist = max(1, min(int(nlist), int(len(vectors))))
+
+        print(f"[*] 开始构建 IVF+HNSW 索引 (nlist={nlist}, M={hnsw_m}, efConstruction={efConstruction})...")
+        start_time = time.time()
+
+        quantizer = faiss.IndexHNSWFlat(self.dim, hnsw_m, self.metric)
+        quantizer.hnsw.efConstruction = efConstruction
+
+        self.index = faiss.IndexIVFFlat(
+            quantizer,
+            self.dim,
+            int(nlist),
+            self.metric,
+        )
+
+        if not self.index.is_trained:
+            if len(vectors) > train_size:
+                sample_idx = np.random.choice(len(vectors), size=train_size, replace=False)
+                train_vectors = vectors[sample_idx]
+            else:
+                train_vectors = vectors
+
+            train_vectors = ensure_faiss_vectors(train_vectors)
+            self.index.train(train_vectors)
+
+        self.index.add(vectors)
+
+        # 默认查询参数，后续 search.py 会根据前端滑块动态覆盖
+        self.index.nprobe = min(max(1, round(np.sqrt(nlist))), min(int(nlist), 64))
+
+        print(f"[+] IVF+HNSW 索引构建完成! 耗时: {time.time() - start_time:.3f} 秒")
+        print(f"    当前索引包含总向量数: {self.index.ntotal}")
+        print(f"    默认 nprobe: {self.index.nprobe}")
 
     def build_flat_index(self, vectors: np.ndarray) -> None:
         """
@@ -98,9 +170,10 @@ def build_index_from_vectors(
     metric: str = "l2",
     M: int = 32,
     efConstruction: int = 200,
+    nlist: Optional[int] = None,
 ) -> dict[str, object]:
     """从 .npy 向量矩阵构建索引并保存，供 CLI 和数据集管理模块复用。"""
-    vectors = np.load(vectors_path).astype(np.float32)
+    vectors = ensure_faiss_vectors(np.load(vectors_path))
     if vectors.ndim != 2:
         raise ValueError(f"向量矩阵应为二维，当前 shape={vectors.shape}")
 
@@ -110,8 +183,15 @@ def build_index_from_vectors(
         builder.build_hnsw_index(vectors, M=M, efConstruction=efConstruction)
     elif index_type == "flat":
         builder.build_flat_index(vectors)
+    elif index_type == "ivf_hnsw":
+        builder.build_ivf_hnsw_index(
+            vectors,
+            nlist=nlist,
+            hnsw_m=M,
+            efConstruction=efConstruction,
+        )
     else:
-        raise ValueError("index_type 仅支持 hnsw 或 flat")
+        raise ValueError("index_type 仅支持 hnsw、flat 或 ivf_hnsw")
 
     builder.save_index(output_path)
     elapsed = time.time() - started
@@ -124,6 +204,8 @@ def build_index_from_vectors(
         "build_seconds": round(elapsed, 3),
         "M": int(M),
         "efConstruction": int(efConstruction),
+        "nlist": int(getattr(builder.index, "nlist", 0)) if hasattr(builder.index, "nlist") else None,
+        "nprobe": int(getattr(builder.index, "nprobe", 0)) if hasattr(builder.index, "nprobe") else None,
     }
 
 
@@ -134,14 +216,18 @@ def main():
     parser = argparse.ArgumentParser(description="P2: ANN 索引构建与测试")
     parser.add_argument("--input", required=True, help="P1 提供的 numpy 向量矩阵文件 (.npy)")
     parser.add_argument("--outdir", default="indices", help="索引保存目录")
-    parser.add_argument("--type", choices=['hnsw', 'flat'], default='hnsw', help="要构建的索引类型")
+    parser.add_argument("--type", choices=['hnsw', 'flat', 'ivf_hnsw'], default='hnsw', help="要构建的索引类型")
     parser.add_argument("--M", type=int, default=32, help="HNSW: 最大连接数")
     parser.add_argument("--ef", type=int, default=200, help="HNSW: 构建候选集大小")
+    parser.add_argument("--nlist", type=int, default=None, help="IVF: 聚类中心数量，不填则自动估计")
     
     args = parser.parse_args()
 
     if args.type == 'hnsw':
         save_name = f"hnsw_M{args.M}_ef{args.ef}.index"
+    elif args.type == 'ivf_hnsw':
+        nlist_tag = args.nlist if args.nlist else "auto"
+        save_name = f"ivf_hnsw_nlist{nlist_tag}_M{args.M}_ef{args.ef}.index"
     else:
         save_name = "flat.index"
 
@@ -153,6 +239,7 @@ def main():
         index_type=args.type,
         M=args.M,
         efConstruction=args.ef,
+        nlist=args.nlist,
     )
     print(f"    向量形状: {tuple(summary['shape'])}")
 

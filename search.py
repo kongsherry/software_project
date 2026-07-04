@@ -1,4 +1,5 @@
 import time
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -38,6 +39,10 @@ class AnnSearcher:
         self.index: faiss.Index = builder.get_faiss_index()
         self._metric_type: int = getattr(self.index, "metric_type", builder.metric)
 
+        # 识别当前索引类型，并用锁保护运行时参数修改
+        self._index_kind: str = self._infer_index_kind()
+        self._search_lock = threading.RLock()
+
     @property
     def total_vectors(self) -> int:
         return int(self.vectors.shape[0])
@@ -51,7 +56,11 @@ class AnnSearcher:
         return "ip" if self._metric_type == faiss.METRIC_INNER_PRODUCT else "l2"
 
     def search_by_cell_id(
-        self, cell_id: str, k: int = 10, filters: Optional[dict] = None
+        self,
+        cell_id: str,
+        k: int = 10,
+        filters: Optional[dict] = None,
+        search_params: Optional[dict] = None,
     ) -> dict[str, Any]:
         """根据细胞ID查找对应向量，再执行ANN检索。
 
@@ -69,11 +78,27 @@ class AnnSearcher:
 
         query_vector = self.vectors[idx : idx + 1]
         if filters:
-            return self._search_with_filters(query_vector, k, filters, query_cell_id=cell_id)
-        return self._execute_search(query_vector, k, query_cell_id=cell_id)
+            return self._search_with_filters(
+                query_vector,
+                k,
+                filters,
+                query_cell_id=cell_id,
+                search_params=search_params,
+            )
+
+        return self._execute_search(
+            query_vector,
+            k,
+            query_cell_id=cell_id,
+            search_params=search_params,
+        )
 
     def search_by_vector(
-        self, vector: np.ndarray, k: int = 10, filters: Optional[dict] = None
+        self,
+        vector: np.ndarray,
+        k: int = 10,
+        filters: Optional[dict] = None,
+        search_params: Optional[dict] = None,
     ) -> dict[str, Any]:
         """直接根据输入向量执行ANN检索。
 
@@ -92,43 +117,66 @@ class AnnSearcher:
             raise ValueError(f"查询向量维度 {vector.shape[1]} 与索引维度 {self.dim} 不匹配")
 
         if filters:
-            return self._search_with_filters(vector, k, filters)
-        return self._execute_search(vector, k)
+            return self._search_with_filters(
+                vector,
+                k,
+                filters,
+                search_params=search_params,
+            )
+
+        return self._execute_search(
+            vector,
+            k,
+            search_params=search_params,
+        )
 
     def _execute_search(
-        self, query: np.ndarray, k: int, query_cell_id: Optional[str] = None
+        self,
+        query: np.ndarray,
+        k: int,
+        query_cell_id: Optional[str] = None,
+        search_params: Optional[dict] = None,
     ) -> dict[str, Any]:
-        start = time.perf_counter()
-        distances, indices = self.index.search(query, k)
-        elapsed = time.perf_counter() - start
+        runtime = self._resolve_runtime_search_params(k, search_params)
 
-        dists = distances[0].tolist()
-        idxs = indices[0].tolist()
+        with self._search_lock:
+            self._apply_runtime_search_params(runtime)
+            start = time.perf_counter()
+            distances, indices = self.index.search(query, k)
+            elapsed = time.perf_counter() - start
 
-        results = []
-        for rank, (dist, idx_) in enumerate(zip(dists, idxs), start=1):
-            if idx_ < 0:
-                results.append({"rank": rank, "cell_id": None, "distance": None, "metadata": None})
-                continue
+            dists = distances[0].tolist()
+            idxs = indices[0].tolist()
 
-            cid = str(self.cell_ids[idx_])
-            meta = self.metadata.iloc[idx_].to_dict()
-            results.append({
-                "rank": rank,
-                "cell_id": cid,
-                "distance": float(dist),
-                "metadata": {k: _sanitize(v) for k, v in meta.items()},
-            })
+            results = []
+            for rank, (dist, idx_) in enumerate(zip(dists, idxs), start=1):
+                if idx_ < 0:
+                    results.append({"rank": rank, "cell_id": None, "distance": None, "metadata": None})
+                    continue
 
-        return {
-            "query": {
-                "cell_id": query_cell_id,
-                "k": k,
-                "metric": self.metric,
-            },
-            "time_ms": round(elapsed * 1000, 3),
-            "results": results,
-        }
+                cid = str(self.cell_ids[idx_])
+                meta = self.metadata.iloc[idx_].to_dict()
+                results.append({
+                    "rank": rank,
+                    "cell_id": cid,
+                    "distance": float(dist),
+                    "metadata": {k: _sanitize(v) for k, v in meta.items()},
+                })
+
+            return {
+                "query": {
+                    "cell_id": query_cell_id,
+                    "k": k,
+                    "metric": self.metric,
+                },
+                "time_ms": round(elapsed * 1000, 3),
+                "results": results,
+                "search_profile": {
+                    "index_type": self._index_kind,
+                    "effective_mode": "ann",
+                    **runtime,
+                },
+            }
 
 
     def _search_with_filters(
@@ -137,6 +185,7 @@ class AnnSearcher:
         k: int,
         filters: dict,
         query_cell_id: Optional[str] = None,
+        search_params: Optional[dict] = None,
     ) -> dict[str, Any]:
         """混合策略检索：根据过滤后细胞数量自动选择预过滤或后过滤。
 
@@ -149,6 +198,7 @@ class AnnSearcher:
         - 字典: 数值范围，如 {"donor_age": {"op": ">", "value": 50}}
         """
         start = time.perf_counter()
+        runtime = self._resolve_runtime_search_params(k, search_params)
 
         # 构建布尔掩码 — 所有过滤条件均为 AND 关系
         mask = pd.Series([True] * len(self.metadata))
@@ -202,6 +252,11 @@ class AnnSearcher:
                     "strategy": "none",
                     "filters": filters,
                 },
+                "search_profile": {
+                    "index_type": self._index_kind,
+                    "effective_mode": "no_match",
+                    **runtime,
+                },
             }
 
         FILTER_THRESHOLD = 1000
@@ -252,7 +307,10 @@ class AnnSearcher:
             strategy = "post_filter"
             # 后过滤：先取更多候选
             extra_k = min(max(k * 3, 200), self.total_vectors)
-            sub_dists, sub_indices = self.index.search(query, extra_k)
+
+            with self._search_lock:
+                self._apply_runtime_search_params(runtime)
+                sub_dists, sub_indices = self.index.search(query, extra_k)
 
             dists = sub_dists[0].tolist()
             idxs = sub_indices[0].tolist()
@@ -292,8 +350,91 @@ class AnnSearcher:
                 "strategy": strategy,
                 "filters": filters,
             },
+            "search_profile": {
+                "index_type": self._index_kind,
+                "effective_mode": strategy,
+                **runtime,
+            },
         }
 
+    def _infer_index_kind(self) -> str:
+        """识别当前 FAISS 索引类型，用于前端展示和运行时参数控制。"""
+        index_name = type(self.index).__name__.lower()
+        quantizer = getattr(self.index, "quantizer", None)
+        quantizer_name = type(quantizer).__name__.lower() if quantizer is not None else ""
+
+        if "ivf" in index_name and "hnsw" in quantizer_name:
+            return "ivf_hnsw"
+        if "hnsw" in index_name:
+            return "hnsw"
+        if "ivf" in index_name:
+            return "ivf"
+        if "flat" in index_name:
+            return "flat"
+        return index_name
+
+    def _resolve_runtime_search_params(
+        self,
+        k: int,
+        search_params: Optional[dict] = None,
+    ) -> dict[str, Any]:
+        """
+        将前端 0~100% 精度滑块映射为 FAISS 底层搜索参数。
+
+        HNSW:
+            precision_pct -> efSearch
+
+        IVF + HNSW:
+            precision_pct -> efSearch + nprobe
+        """
+        cfg = dict(search_params or {})
+
+        precision_pct = float(cfg.get("precision_pct", 55))
+        precision_pct = max(0.0, min(100.0, precision_pct))
+
+        if cfg.get("ef_search") is not None:
+            ef_search = int(cfg["ef_search"])
+        else:
+            min_ef, max_ef = 16, 256
+            ef_search = int(round(min_ef * ((max_ef / min_ef) ** (precision_pct / 100.0))))
+
+        ef_search = max(int(k), max(16, ef_search))
+
+        runtime: dict[str, Any] = {
+            "precision_pct": round(precision_pct, 1),
+            "ef_search": int(ef_search),
+        }
+
+        if self._index_kind == "ivf_hnsw" or hasattr(self.index, "nprobe"):
+            nlist = int(getattr(self.index, "nlist", 1))
+            max_nprobe = max(1, min(nlist, 64))
+
+            if cfg.get("nprobe") is not None:
+                nprobe = int(cfg["nprobe"])
+            else:
+                nprobe = int(round(1 + (max_nprobe - 1) * ((precision_pct / 100.0) ** 1.3)))
+
+            runtime["nprobe"] = max(1, min(max_nprobe, nprobe))
+            runtime["nlist"] = nlist
+
+        return runtime
+
+    def _apply_runtime_search_params(self, runtime: dict[str, Any]) -> None:
+        """将运行时搜索参数写入 FAISS 索引对象。"""
+        ef_search = int(runtime.get("ef_search", 64))
+
+        # 普通 HNSW
+        if hasattr(self.index, "hnsw"):
+            self.index.hnsw.efSearch = ef_search
+
+        # IVF / IVF+HNSW
+        if hasattr(self.index, "nprobe") and "nprobe" in runtime:
+            self.index.nprobe = int(runtime["nprobe"])
+
+        # IVF+HNSW 的 coarse quantizer
+        quantizer = getattr(self.index, "quantizer", None)
+        if quantizer is not None and hasattr(quantizer, "hnsw"):
+            quantizer.hnsw.efSearch = ef_search
 
 def _sanitize(value: Any) -> Any:
     """将 numpy/Pandas 类型转为 JSON 兼容的 Python 原生类型。"""
