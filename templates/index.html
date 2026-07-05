@@ -73,8 +73,12 @@
         }
         .result-panel h3 { margin: 0 0 6px 0; font-size: 1rem; }
         .result-panel table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
-        .result-panel th { position: sticky; top: 0; background: #f1f3f5; padding: 6px 8px; text-align: left; z-index: 2; }
-        .result-panel td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
+        .result-panel th {
+            position: sticky; top: 0; background: #eef3f8; color: #243447;
+            padding: 6px 8px; text-align: left; z-index: 2;
+            border-bottom: 1px solid #d6dee8; font-weight: 700;
+        }
+        .result-panel td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; color: #2f3b45; }
 
         /* 左侧控件 */
         .ctrl-group { margin-bottom: 14px; }
@@ -475,7 +479,7 @@
                         配置查询条件后点击「执行联合检索」
                     </div>
                     <table id="multiResultTable" style="display:none; width:100%; font-size:0.85rem; border-collapse:collapse;">
-                        <thead style="position:sticky; top:0; background:#f1f3f5; z-index:2;">
+                        <thead style="position:sticky; top:0; background:#eef3f8; color:#243447; z-index:2;">
                             <tr>
                                 <th style="padding:6px 8px; text-align:left;">Rank</th>
                                 <th style="padding:6px 8px; text-align:left;">数据集</th>
