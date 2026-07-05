@@ -73,8 +73,12 @@
         }
         .result-panel h3 { margin: 0 0 6px 0; font-size: 1rem; }
         .result-panel table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
-        .result-panel th { position: sticky; top: 0; background: #f1f3f5; padding: 6px 8px; text-align: left; z-index: 2; }
-        .result-panel td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
+        .result-panel th {
+            position: sticky; top: 0; background: #eef3f8; color: #243447;
+            padding: 6px 8px; text-align: left; z-index: 2;
+            border-bottom: 1px solid #d6dee8; font-weight: 700;
+        }
+        .result-panel td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; color: #2f3b45; }
 
         /* 左侧控件 */
         .ctrl-group { margin-bottom: 14px; }
@@ -94,6 +98,12 @@
         .btn-secondary { background: #6c757d; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
         .btn-secondary:hover { background: #5a6268; }
         .status-msg { font-size: 0.85rem; color: #666; margin-top: 6px; }
+        .ai-box { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e9ecef; }
+        .ai-box textarea { min-height: 70px; }
+        .ai-panel { margin-top: 10px; padding: 10px; background: #f8fbff; border: 1px solid #d8e8ff; border-radius: 8px; font-size: 0.9rem; }
+        .ai-panel h4 { margin: 0 0 6px 0; color: #174ea6; }
+        .ai-panel ul { margin: 6px 0 0 18px; padding: 0; }
+        .ai-panel li { margin-bottom: 3px; }
 
         /* ===== 性能评估页 ===== */
         .metrics-page { padding: 20px; overflow-y: auto; }
@@ -222,7 +232,6 @@
                     <input id="datasetNlistInput" type="number" min="1" placeholder="nlist自动" style="width:90px; padding:4px 8px; border-radius:4px; border:1px solid #ccc;" title="IVF 聚类中心数量，不填则自动估计">
 
                     <button onclick="uploadDataset()">⬆ 上传并构建</button>
-                    <button onclick="uploadDataset()">⬆ 上传并构建</button>
                 </div>
                 <div id="datasetStatus" style="margin-top:8px; color:#666; font-size:0.9rem;">就绪</div>
             </div>
@@ -246,6 +255,13 @@
                 <div class="ctrl-group">
                     <label>数据集</label>
                     <select id="datasetSelect" onchange="switchDataset(this.value)"></select>
+                </div>
+
+                <div class="ctrl-group ai-box">
+                    <label>自然语言查询</label>
+                    <textarea id="naturalQueryInput" placeholder="例如：找 HCC 样本中最像 Kupffer cell 的 20 个细胞"></textarea>
+                    <button class="btn-primary" id="naturalQueryBtn" onclick="executeNaturalLanguageQuery()" style="margin-top:6px;">AI 查询并分析</button>
+                    <div id="naturalQueryStatus" class="status-msg"></div>
                 </div>
 
                 <div class="ctrl-group">
@@ -344,8 +360,12 @@
                 <div class="result-panel" id="resultPanel">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
                         <h3 style="margin:0; font-size:1rem;">📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
-                        <button class="btn-secondary" onclick="exportCSV()" id="exportCsvBtn" style="display:none;">📥 导出 CSV</button>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-secondary" onclick="analyzeCurrentResult()">AI 分析当前结果</button>
+                            <button class="btn-secondary" onclick="exportCSV()" id="exportCsvBtn" style="display:none;">📥 导出 CSV</button>
+                        </div>
                     </div>
+                    <div id="aiAnalysisPanel" class="ai-panel" style="display:none;"></div>
                     <div id="resultStatus" style="color:#888; font-size:0.9rem;">点击散点图或执行检索</div>
                     <table id="resultTable" style="display:none; width:100%;">
                         <thead>
@@ -459,7 +479,7 @@
                         配置查询条件后点击「执行联合检索」
                     </div>
                     <table id="multiResultTable" style="display:none; width:100%; font-size:0.85rem; border-collapse:collapse;">
-                        <thead style="position:sticky; top:0; background:#f1f3f5; z-index:2;">
+                        <thead style="position:sticky; top:0; background:#eef3f8; color:#243447; z-index:2;">
                             <tr>
                                 <th style="padding:6px 8px; text-align:left;">Rank</th>
                                 <th style="padding:6px 8px; text-align:left;">数据集</th>
@@ -525,6 +545,7 @@ let activeDatasetId = null;
 let scatterData = null;
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
+let lastSearchResult = null;
 let metricsRefreshTimer = null;
 
 // 预设选项补全（与 generate_test_h5ad.py 保持一致，作为初始占位，启动后会从后端动态覆盖）
@@ -1198,15 +1219,10 @@ async function doSearch(payload) {
 
     const status = document.getElementById('searchStatus');
     const resultStatus = document.getElementById('resultStatus');
-    const table = document.getElementById('resultTable');
-    const tbody = document.getElementById('resultBody');
-    const meta = document.getElementById('resultMeta');
 
     status.textContent = '请求中...';
     resultStatus.textContent = '查询中...';
-    table.style.display = 'none';
-    tbody.innerHTML = '';
-    document.getElementById('exportCsvBtn').style.display = 'none';
+    resetResultTable();
 
     try {
         const resp = await fetch('/search', {
@@ -1215,72 +1231,8 @@ async function doSearch(payload) {
             body: JSON.stringify(payload)
         });
         const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || data.message || '请求失败');
-
-        status.textContent = `✅ 完成 (${data.time_ms} ms)`;
-
-        const profile = data.search_profile || {};
-        const metaParts = [];
-
-        if (profile.precision_pct !== undefined) {
-            metaParts.push(`精度 ${profile.precision_pct}%`);
-        }
-        if (profile.ef_search !== undefined) {
-            metaParts.push(`efSearch=${profile.ef_search}`);
-        }
-        if (profile.nprobe !== undefined) {
-            metaParts.push(`nprobe=${profile.nprobe}`);
-        }
-        if (profile.index_type) {
-            metaParts.push(`索引=${profile.index_type}`);
-        }
-        if (data.filter_info) {
-            metaParts.push(`过滤策略=${data.filter_info.strategy}`);
-        }
-
-        meta.textContent = metaParts.join(' | ') || '无附加参数';
-        resultStatus.textContent = `共 ${data.results.length} 个结果`;
-
-        updatePrecisionPreview(profile.index_type, profile.nlist || 256);
-
-        if (!data.results.length) {
-            resultStatus.textContent = '无匹配结果';
-            return;
-        }
-
-        // 渲染表格
-        data.results.forEach(item => {
-            const m = item.metadata || {};
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${item.rank}</td>
-                <td>${escapeHtml(item.cell_id)}</td>
-                <td>${item.distance !== null ? item.distance.toFixed(6) : '-'}</td>
-                <td>${escapeHtml(m.cell_type || '-')}</td>
-                <td>${escapeHtml(m.disease || '-')}</td>
-                <td>${escapeHtml(m.AgeGroup || '-')}</td>
-                <td>${Object.entries(m).filter(([k]) => !['cell_type','disease','AgeGroup'].includes(k)).map(([k,v]) => `${k}:${v}`).join('; ')}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-        table.style.display = 'table';
-        document.getElementById('exportCsvBtn').style.display = '';
-        document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        // ===== 反向高亮：在散点图中标记结果 =====
-        const resultIds = data.results.map(r => r.cell_id).filter(id => id);
-        if (resultIds.length && scatterData) {
-            // 计算实际在散点图中的结果数
-            const visibleIds = resultIds.filter(id => 
-                scatterData.points.some(p => p.cell_id === id)
-            );
-            // 更新散点图高亮
-            updateScatterHighlights(resultIds);
-            // 在状态栏显示高亮统计
-            document.getElementById('resultMeta').textContent += 
-                ` | 散点图高亮 ${visibleIds.length}/${resultIds.length} 个`;
-        }
-
+        if (!resp.ok) throw new Error(data.message || data.error || '请求失败');
+        renderSearchResponse(data);
     } catch (e) {
         status.textContent = '❌ ' + e.message;
         resultStatus.textContent = '检索失败';
@@ -1289,6 +1241,179 @@ async function doSearch(payload) {
         btn.textContent = orig;
         btn.disabled = false;
     }
+}
+
+async function executeNaturalLanguageQuery() {
+    if (isSearching) return;
+    const question = document.getElementById('naturalQueryInput').value.trim();
+    if (!question) { alert('请输入自然语言查询'); return; }
+
+    isSearching = true;
+    const btn = document.getElementById('naturalQueryBtn');
+    const orig = btn.textContent;
+    btn.textContent = 'AI 查询中...';
+    btn.disabled = true;
+    document.getElementById('naturalQueryStatus').textContent = 'DeepSeek 正在解析并检索...';
+    document.getElementById('resultStatus').textContent = 'AI 查询中...';
+    resetResultTable();
+
+    try {
+        const resp = await fetch('/ai/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || data.error || 'AI 查询失败');
+        document.getElementById('naturalQueryStatus').textContent =
+            `✅ 已解析: ${data.natural_language_plan?.explain || data.natural_language_plan?.action || '完成'}`;
+        renderSearchResponse(data);
+        if (data.analysis) renderAiAnalysis(data.analysis);
+    } catch (e) {
+        document.getElementById('naturalQueryStatus').textContent = '❌ ' + e.message;
+        document.getElementById('resultStatus').textContent = 'AI 查询失败';
+    } finally {
+        isSearching = false;
+        btn.textContent = orig;
+        btn.disabled = false;
+    }
+}
+
+async function analyzeCurrentResult() {
+    if (!lastSearchResult) { alert('请先执行一次检索'); return; }
+    const panel = document.getElementById('aiAnalysisPanel');
+    panel.style.display = 'block';
+    panel.innerHTML = '<h4>AI 分析</h4><div>DeepSeek 正在分析当前结果...</div>';
+    try {
+        const resp = await fetch('/ai/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ search_result: lastSearchResult })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || data.error || 'AI 分析失败');
+        renderAiAnalysis(data.analysis);
+    } catch (e) {
+        panel.innerHTML = `<h4>AI 分析</h4><div class="status-msg">❌ ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function resetResultTable() {
+    document.getElementById('resultTable').style.display = 'none';
+    document.getElementById('resultBody').innerHTML = '';
+    document.getElementById('exportCsvBtn').style.display = 'none';
+    document.getElementById('aiAnalysisPanel').style.display = 'none';
+    document.getElementById('aiAnalysisPanel').innerHTML = '';
+}
+
+function renderSearchResponse(data) {
+    lastSearchResult = {
+        query: data.query,
+        time_ms: data.time_ms,
+        results: data.results || [],
+        filter_info: data.filter_info,
+        centroid_info: data.centroid_info,
+        natural_language_plan: data.natural_language_plan,
+        search_profile: data.search_profile
+    };
+
+    const status = document.getElementById('searchStatus');
+    const resultStatus = document.getElementById('resultStatus');
+    const table = document.getElementById('resultTable');
+    const tbody = document.getElementById('resultBody');
+    const meta = document.getElementById('resultMeta');
+
+    status.textContent = `✅ 完成 (${data.time_ms} ms)`;
+    const profile = data.search_profile || {};
+    const metaParts = [];
+
+    if (profile.precision_pct !== undefined) {
+        metaParts.push(`精度 ${profile.precision_pct}%`);
+    }
+    if (profile.ef_search !== undefined) {
+        metaParts.push(`efSearch=${profile.ef_search}`);
+    }
+    if (profile.nprobe !== undefined) {
+        metaParts.push(`nprobe=${profile.nprobe}`);
+    }
+    if (profile.index_type) {
+        metaParts.push(`索引=${profile.index_type}`);
+    }
+    if (data.filter_info) {
+        metaParts.push(`过滤策略=${data.filter_info.strategy}`);
+        if (data.filter_info.filters) {
+            metaParts.push(`过滤=${JSON.stringify(data.filter_info.filters)}`);
+        }
+    }
+    if (data.natural_language_plan) {
+        metaParts.push(`AI计划=${data.natural_language_plan.action}`);
+    }
+    if (data.centroid_info) {
+        metaParts.push(`参考细胞=${data.centroid_info.matched_reference_cells} 个`);
+    }
+    meta.textContent = metaParts.join(' | ') || '无附加参数';
+    resultStatus.textContent = `共 ${(data.results || []).length} 个结果`;
+    updatePrecisionPreview(profile.index_type, profile.nlist || 256);
+
+    if (!data.results || !data.results.length) {
+        resultStatus.textContent = '无匹配结果';
+        return;
+    }
+
+    data.results.forEach(item => {
+        const m = item.metadata || {};
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${item.rank}</td>
+            <td>${escapeHtml(item.cell_id)}</td>
+            <td>${item.distance !== null && item.distance !== undefined ? Number(item.distance).toFixed(6) : '-'}</td>
+            <td>${escapeHtml(m.cell_type || '-')}</td>
+            <td>${escapeHtml(m.disease || '-')}</td>
+            <td>${escapeHtml(m.AgeGroup || '-')}</td>
+            <td>${Object.entries(m).filter(([k]) => !['cell_type','disease','AgeGroup'].includes(k)).map(([k,v]) => `${escapeHtml(k)}:${escapeHtml(v)}`).join('; ')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    table.style.display = 'table';
+    document.getElementById('exportCsvBtn').style.display = '';
+    document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const resultIds = data.results.map(r => r.cell_id).filter(id => id);
+    if (resultIds.length && scatterData) {
+        const visibleIds = resultIds.filter(id =>
+            scatterData.points.some(p => p.cell_id === id)
+        );
+        updateScatterHighlights(resultIds);
+        document.getElementById('resultMeta').textContent +=
+            ` | 散点图高亮 ${visibleIds.length}/${resultIds.length} 个`;
+    }
+}
+
+function renderAiAnalysis(analysis) {
+    const panel = document.getElementById('aiAnalysisPanel');
+    if (!analysis) {
+        panel.style.display = 'none';
+        return;
+    }
+    const findings = Array.isArray(analysis.key_findings) ? analysis.key_findings : [];
+    const notes = Array.isArray(analysis.quality_notes) ? analysis.quality_notes : [];
+    const suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions : [];
+    const provider = analysis.provider === 'deepseek'
+        ? `DeepSeek / ${analysis.model || 'deepseek-v4-flash'}`
+        : '本地统计摘要';
+    panel.style.display = 'block';
+    panel.innerHTML = `
+        <h4>AI 分析 <span style="font-weight:normal; color:#6c757d;">${escapeHtml(provider)}</span></h4>
+        <div>${escapeHtml(analysis.summary || '暂无摘要')}</div>
+        ${renderAiList('关键发现', findings)}
+        ${renderAiList('质量提示', notes)}
+        ${renderAiList('后续建议', suggestions)}
+    `;
+}
+
+function renderAiList(title, items) {
+    if (!items.length) return '';
+    return `<strong>${escapeHtml(title)}</strong><ul>${items.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`;
 }
 
 // ================================================================
@@ -1767,6 +1892,8 @@ window.deleteDataset = deleteDataset;
 window.addFilterRow = addFilterRow;
 window.removeFilterRow = removeFilterRow;
 window.executeSearch = executeSearch;
+window.executeNaturalLanguageQuery = executeNaturalLanguageQuery;
+window.analyzeCurrentResult = analyzeCurrentResult;
 window.handleLogout = handleLogout;
 window.switchDataset = async function(id) {
     if (id === activeDatasetId) return;

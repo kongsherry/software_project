@@ -13,6 +13,7 @@
 - 可视化：读取 `obsm["X_umap"]` 或 `obsm["X_tsne"]`，提供散点图数据接口，前端支持点击细胞后反向查询近邻。
 - 性能评估：计算 HNSW 相对 Flat Ground Truth 的 Recall@K、平均延迟、P95、QPS、索引大小。
 - 用户系统：支持注册、登录、退出、管理员用户管理、角色变更和密码重置。
+- AI 辅助分析：基于 DeepSeek 大模型支持自然语言查询细胞、检索结果解释和后续分析建议。
 
 ## 目录结构
 
@@ -70,6 +71,33 @@ werkzeug
 ```bash
 pip install flask numpy pandas scanpy anndata scikit-learn faiss-cpu werkzeug
 ```
+
+### DeepSeek 配置
+
+AI 辅助功能默认使用 DeepSeek OpenAI-compatible 接口，模型名为：
+
+```text
+deepseek-v4-flash
+```
+
+启动服务前配置 API Key：
+
+```bash
+set DEEPSEEK_API_KEY=你的DeepSeek API Key
+```
+
+可选配置：
+
+```bash
+set DEEPSEEK_MODEL=deepseek-v4-flash
+set DEEPSEEK_BASE_URL=https://api.deepseek.com
+set DEEPSEEK_THINKING=disabled
+set DEEPSEEK_MAX_TOKENS=4096
+```
+
+如果未配置 `DEEPSEEK_API_KEY`，自然语言查询接口会返回配置错误；“AI 分析当前结果”会退化为本地统计摘要。
+
+说明：`deepseek-v4-flash` 默认开启思考模式；本项目的自然语言查询需要稳定返回 JSON，因此默认通过 `thinking={"type":"disabled"}` 关闭思考模式。需要查看推理过程时可以改为 `DEEPSEEK_THINKING=enabled`。
 
 ## 快速启动
 
@@ -354,6 +382,32 @@ curl http://127.0.0.1:5000/metrics
 
 ```bash
 python evaluate.py
+```
+
+### AI 辅助分析
+
+自然语言查询并自动分析：
+
+```bash
+curl -X POST http://127.0.0.1:5000/ai/query ^
+  -H "Content-Type: application/json" ^
+  -d "{\"question\":\"找 HCC 样本中最像 Kupffer cell 的 20 个细胞\"}"
+```
+
+支持的查询计划包括：
+
+```text
+search_by_cell_id   # 例如：找出和 cell_0044 最像的 10 个细胞
+centroid_search     # 例如：找 HCC 样本中最像 Kupffer cell 的 20 个细胞
+metadata_filter     # 例如：查询 Healthy 成人样本里的 hepatocyte
+```
+
+对已有检索结果做 AI 分析：
+
+```bash
+curl -X POST http://127.0.0.1:5000/ai/analyze ^
+  -H "Content-Type: application/json" ^
+  -d "{\"cell_id\":\"cell_0044\",\"k\":10}"
 ```
 
 ## 权限说明
