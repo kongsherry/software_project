@@ -1,6 +1,6 @@
 # 单细胞高维向量 ANN 检索系统
 
-本项目是一个面向单细胞数据的近似最近邻检索系统，支持 `.h5ad` 数据集上传、向量导出、FAISS 索引构建、条件过滤检索、二维散点图可视化、点击细胞反向查询、性能评估报告展示，以及用户认证与管理员权限管理。
+本项目是一个面向单细胞数据的近似最近邻检索系统，支持 `.h5ad` 数据集上传、向量导出、FAISS 索引构建、条件过滤检索、二维散点图可视化、点击细胞反向查询、联合检索、实时性能评估、AI 自然语言查询与结果解释，以及用户认证与管理员权限管理。
 
 历史开发进度已迁移到 [PROGRESS.md](PROGRESS.md)。
 
@@ -8,10 +8,12 @@
 
 - 数据集管理：管理员上传、切换、删除 `.h5ad` 数据集。
 - 向量化导出：读取 `obsm["X_pca"]`，导出 `vectors.npy`、`cell_ids.npy`、`obs_metadata.csv`。
-- ANN 检索：基于 FAISS HNSW/Flat 索引，支持按 Cell ID 或原始向量查询 Top-K 近邻。
-- 条件过滤：支持按 `cell_type`、`disease`、`AgeGroup` 等元数据字段过滤检索结果。
+- ANN 检索：基于 FAISS HNSW、IVF+HNSW 或 Flat 索引，支持按 Cell ID 或原始向量查询 Top-K 近邻。
+- 条件过滤：支持按 `cell_type`、`disease`、`AgeGroup` 等元数据字段过滤；支持多选 OR 过滤和数值范围过滤。
 - 可视化：读取 `obsm["X_umap"]` 或 `obsm["X_tsne"]`，提供散点图数据接口，前端支持点击细胞后反向查询近邻。
-- 性能评估：计算 HNSW 相对 Flat Ground Truth 的 Recall@K、平均延迟、P95、QPS、索引大小。
+- 检索精度控制：前端可调精度滑块，后端动态设置 HNSW `efSearch` 或 IVF `nprobe`。
+- 联合检索：可加载多个数据集，在多个索引中并行搜索并按距离合并排序。
+- 性能评估：结合实时查询指标与离线评估报告，展示 Recall@K、平均延迟、P95、QPS、索引大小。
 - 用户系统：支持注册、登录、退出、管理员用户管理、角色变更和密码重置。
 - AI 辅助分析：基于 DeepSeek 大模型支持自然语言查询细胞、检索结果解释和后续分析建议。
 
@@ -21,8 +23,10 @@
 .
 ├── app.py                  # Flask Web 服务与 API 路由
 ├── data_loader.py          # .h5ad 数据读取与向量导出
-├── index_builder.py        # FAISS HNSW/Flat 索引构建
+├── index_builder.py        # FAISS HNSW/IVF+HNSW/Flat 索引构建
 ├── search.py               # ANN 检索与条件过滤逻辑
+├── multi_search.py         # 多数据集联合检索
+├── ai_analyzer.py          # DeepSeek 自然语言查询与结果分析
 ├── dataset_manager.py      # 数据集上传、切换、删除与 manifest 管理
 ├── visualize.py            # UMAP/t-SNE 散点图数据接口
 ├── evaluate.py             # Recall/QPS/延迟评估脚本
@@ -99,6 +103,8 @@ set DEEPSEEK_MAX_TOKENS=4096
 
 说明：`deepseek-v4-flash` 默认开启思考模式；本项目的自然语言查询需要稳定返回 JSON，因此默认通过 `thinking={"type":"disabled"}` 关闭思考模式。需要查看推理过程时可以改为 `DEEPSEEK_THINKING=enabled`。
 
+当前 API Key 只从服务端环境变量读取，暂不支持在浏览器页面中持久配置。
+
 ## 快速启动
 
 ### 1. 生成测试数据
@@ -135,7 +141,7 @@ http://127.0.0.1:5000
 密码：admin123
 ```
 
-管理员账号用于上传、切换、删除数据集，以及管理用户。
+管理员账号用于上传、删除数据集，以及管理用户；普通登录用户也可以切换活动数据集。
 
 ### 3. 上传测试数据集
 
@@ -157,9 +163,14 @@ data/test_data.h5ad
 
 - 按 Cell ID 查询 Top-K 近邻。
 - 粘贴原始向量进行查询。
-- 添加元数据过滤条件。
+- 添加元数据过滤条件，包括多选和数值范围过滤。
+- 通过精度滑块调整 ANN 检索参数。
+- 使用自然语言查询，例如“找 HCC 样本中最像 NK-cell 的 5 个细胞”。
 - 查看 UMAP 散点图。
 - 点击散点图中的细胞，自动反向查询该细胞的 Top-K 近邻。
+- 对当前检索结果执行 AI 分析。
+
+切换到“联合检索”页后，可以加载多个数据集，并对多个数据集进行统一 Top-K 检索。
 
 测试数据中的 Cell ID 示例：
 
@@ -208,6 +219,7 @@ python index_builder.py --input results/vectors.npy --outdir indices
 
 ```bash
 python index_builder.py --type hnsw --M 32 --ef 200
+python index_builder.py --type ivf_hnsw --nlist 256 --M 32 --ef 200
 python index_builder.py --type flat
 ```
 
@@ -215,6 +227,7 @@ python index_builder.py --type flat
 
 ```text
 indices/hnsw_M32_ef200.index
+indices/ivf_hnsw_nlist256_M32_ef200.index
 indices/flat.index
 ```
 
@@ -238,10 +251,12 @@ python search.py --index indices/hnsw_M32_ef200.index ^
 ### 运行性能评估
 
 ```bash
-python evaluate.py --sample-size 200 --report evaluation_report.json
+python evaluate.py --dataset-id test_data --sample-size 200 --report evaluation_report.json
 ```
 
 生成报告后，在 Web 页面“性能评估”页查看 Recall、延迟、QPS 和索引大小。
+
+如果不传 `--dataset-id`，会评估当前活动数据集。Web 页面也会为当前活动数据集自动生成或读取对应评估报告。
 
 ## Web API
 
@@ -251,7 +266,7 @@ python evaluate.py --sample-size 200 --report evaluation_report.json
 http://127.0.0.1:5000
 ```
 
-除注册、登录接口外，其余业务接口需要登录；数据集上传、切换、删除需要管理员权限。
+除注册、登录接口外，其余业务接口需要登录；数据集上传、删除和用户管理需要管理员权限。当前实现中，已登录用户可以切换活动数据集。
 
 ### 认证
 
@@ -297,15 +312,15 @@ curl http://127.0.0.1:5000/datasets
 curl -X POST http://127.0.0.1:5000/datasets ^
   -F "file=@data/test_data.h5ad" ^
   -F "name=test_data" ^
-  -F "embedding=X_pca" ^
   -F "dims=30" ^
-  -F "index_type=hnsw" ^
-  -F "M=32" ^
-  -F "ef=200" ^
+  -F "index_type=ivf_hnsw" ^
+  -F "nlist=256" ^
   -F "activate=true"
 ```
 
-切换活动数据集，需管理员权限：
+当前上传接口使用 `X_pca` 作为 embedding，默认导出 `cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age` 等元数据列。`index_type` 支持 `hnsw`、`ivf_hnsw`、`flat`，`nlist` 仅对 `ivf_hnsw` 生效；不填写 `nlist` 时会自动估计。
+
+切换活动数据集，需登录：
 
 ```bash
 curl -X POST http://127.0.0.1:5000/datasets/test_data/activate
@@ -345,6 +360,22 @@ curl -X POST http://127.0.0.1:5000/search ^
   -d "{\"cell_id\":\"cell_0044\",\"k\":10,\"filters\":{\"disease\":\"HCC\",\"cell_type\":\"NK-cell\"}}"
 ```
 
+多选过滤和数值范围过滤：
+
+```bash
+curl -X POST http://127.0.0.1:5000/search ^
+  -H "Content-Type: application/json" ^
+  -d "{\"cell_id\":\"cell_0044\",\"k\":10,\"filters\":{\"cell_type\":[\"NK-cell\",\"T-cell\"],\"donor_age\":{\"op\":\">=\",\"value\":50}}}"
+```
+
+指定 ANN 精度参数：
+
+```bash
+curl -X POST http://127.0.0.1:5000/search ^
+  -H "Content-Type: application/json" ^
+  -d "{\"cell_id\":\"cell_0044\",\"k\":10,\"search_params\":{\"precision_pct\":80,\"ef_search\":128,\"nprobe\":16}}"
+```
+
 返回结果包含：
 
 ```text
@@ -352,6 +383,7 @@ query
 time_ms
 results
 filter_info
+search_profile
 request_time_ms
 metrics
 ```
@@ -370,6 +402,50 @@ curl "http://127.0.0.1:5000/scatter_data?max_points=5000"
 curl -X POST http://127.0.0.1:5000/scatter_search ^
   -H "Content-Type: application/json" ^
   -d "{\"cell_id\":\"cell_0044\",\"k\":10}"
+```
+
+获取当前数据集可用过滤字段取值：
+
+```bash
+curl http://127.0.0.1:5000/filter_options
+```
+
+### 联合检索
+
+加载一个或多个数据集到联合检索器：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/multi_load ^
+  -H "Content-Type: application/json" ^
+  -d "{\"dataset_ids\":[\"default\",\"test_data\"]}"
+```
+
+查看已加载数据集：
+
+```bash
+curl http://127.0.0.1:5000/api/multi_status
+```
+
+跨数据集检索：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/multi_search ^
+  -H "Content-Type: application/json" ^
+  -d "{\"dataset_ids\":[\"default\",\"test_data\"],\"cell_id\":\"cell_0044\",\"k\":10,\"filters\":{\"disease\":\"HCC\"}}"
+```
+
+卸载指定数据集：
+
+```bash
+curl -X DELETE http://127.0.0.1:5000/api/multi_load/test_data
+```
+
+管理员可以将已加载的多个数据集构建为合并索引：
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/multi_merge ^
+  -H "Content-Type: application/json" ^
+  -d "{\"dataset_ids\":[\"default\",\"test_data\"],\"output_path\":\"indices/merged/merged_hnsw.index\",\"index_type\":\"hnsw\"}"
 ```
 
 ### 性能报告
@@ -414,15 +490,17 @@ curl -X POST http://127.0.0.1:5000/ai/analyze ^
 
 | 操作 | 未登录 | 普通用户 | 管理员 |
 | --- | --- | --- | --- |
-| 注册 / 登录 | 允许 | 允许 | 允许 |
-| 查看首页 | 不允许 | 允许 | 允许 |
-| 检索 | 不允许 | 允许 | 允许 |
-| 查看散点图 | 不允许 | 允许 | 允许 |
-| 查看性能报告 | 不允许 | 允许 | 允许 |
-| 上传数据集 | 不允许 | 不允许 | 允许 |
-| 切换数据集 | 不允许 | 不允许 | 允许 |
-| 删除数据集 | 不允许 | 不允许 | 允许 |
-| 用户管理 | 不允许 | 不允许 | 允许 |
+| 注册 / 登录 | ✅ | ✅ | ✅ |
+| 查看首页 | ❌ | ✅ | ✅ |
+| 检索 | ❌ | ✅ | ✅ |
+| 查看散点图 | ❌ | ✅ | ✅ |
+| 查看性能报告 | ❌ | ✅ | ✅ |
+| 上传数据集 | ❌ | ❌ | ✅ |
+| 切换数据集 | ❌ | ✅ | ✅ |
+| 删除数据集 | ❌ | ❌ | ✅ |
+| 联合检索 | ❌ | ✅ | ✅ |
+| AI 查询 / 分析 | ❌ | ✅ | ✅ |
+| 用户管理 | ❌ | ❌ | ✅ |
 
 ## 完整测试方法
 
@@ -442,8 +520,12 @@ python app.py
 4. 切换到“探索”页
 5. 输入 cell_0044，Top-K 设置为 10，执行检索
 6. 添加过滤条件 disease = HCC 或 cell_type = NK-cell，再次检索
-7. 点击散点图中的细胞，检查结果表是否刷新
-8. 切换到“性能评估”页，查看 evaluation_report.json 内容
+7. 调整精度滑块，检查结果表头中的 efSearch / nprobe / 精度信息
+8. 使用自然语言查询“找 HCC 样本中最像 NK-cell 的 5 个细胞”
+9. 点击“AI 分析当前结果”，检查分析面板
+10. 点击散点图中的细胞，检查结果表是否刷新
+11. 切换到“联合检索”页，加载 default 和 test_data 后执行跨数据集检索
+12. 切换到“性能评估”页，查看实时指标和离线 Recall 报告
 ```
 
 ### 权限测试
@@ -452,22 +534,22 @@ python app.py
 
 ```text
 POST /datasets
-POST /datasets/<dataset_id>/activate
 DELETE /datasets/<dataset_id>
+POST /api/multi_merge
 ```
 
 管理员访问：
 
 ```text
 POST /datasets             # 不带文件时返回 400，说明已通过权限检查进入业务校验
-POST /datasets/default/activate  # 返回 200
+POST /datasets/default/activate  # 登录用户即可返回 200
 DELETE /datasets/default   # 返回 400，因为 default 数据集受保护
 ```
 
 ### 语法检查
 
 ```bash
-python -B -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['app.py','data_loader.py','index_builder.py','search.py','dataset_manager.py','visualize.py','user_manager.py','evaluate.py','generate_test_h5ad.py']]; print('syntax ok')"
+python -m py_compile app.py ai_analyzer.py search.py dataset_manager.py visualize.py user_manager.py multi_search.py data_loader.py index_builder.py evaluate.py generate_test_h5ad.py
 ```
 
 ## 注意事项
