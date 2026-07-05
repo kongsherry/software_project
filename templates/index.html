@@ -83,8 +83,9 @@
             width: 100%; padding: 5px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.9rem;
         }
         .ctrl-group textarea { height: 50px; resize: vertical; }
-        .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
-        .filter-row select { flex: 2; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; flex-wrap: wrap; }
+        .filter-row select.filter-key { flex: 0 0 auto; min-width: 90px; padding: 3px 6px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
+        .filter-row select.filter-op { flex: 0 0 auto; min-width: 42px; max-width: 52px; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
         .filter-row input { flex: 3; padding: 3px 4px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; }
         .filter-row .del-btn { background: #dc3545; color: #fff; border: none; border-radius: 4px; padding: 0 6px; cursor: pointer; font-size: 0.7rem; height: 22px; }
         .btn-primary { background: #007bff; color: #fff; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%; }
@@ -112,6 +113,70 @@
         .metrics-page .stat-item .label { font-size: 0.8rem; color: #666; }
         .plot-container { width: 100%; height: 300px; }
 
+        /* ===== 多选下拉框 ===== */
+        .ms-wrapper { flex: 3; position: relative; min-width: 220px; }
+        .ms-display {
+            width: 100%; padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc;
+            font-size: 0.8rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+            background: #fff; min-height: 22px; box-sizing: border-box;
+        }
+        .ms-display:hover { border-color: #999; }
+        .ms-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
+        .ms-text.has-selection { color: #333; }
+        .ms-arrow { font-size: 0.7rem; color: #999; margin-left: 4px; flex-shrink: 0; }
+        .ms-dropdown {
+            display: none; position: absolute; top: 100%; left: 0; z-index: 1000;
+            background: #fff; border: 1px solid #ccc; border-radius: 4px;
+            max-height: 240px;
+            min-width: 360px;
+            max-width: 90vw;
+            overflow-y: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+            white-space: nowrap;
+            text-align: left;
+        }
+        .ms-dropdown label {
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr);
+            align-items: center;
+            justify-content: start;
+            column-gap: 6px;
+            padding: 6px 10px 6px 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin: 0;
+            line-height: 1.2;
+            white-space: nowrap;
+            box-sizing: border-box;
+            width: 100%;
+            text-align: left;
+        }
+        .ms-dropdown label:hover { background: #f0f4ff; }
+        .ms-dropdown input[type="checkbox"] {
+            appearance: auto;
+            -webkit-appearance: checkbox;
+            display: block;
+            width: 14px;
+            min-width: 14px;
+            height: 14px;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            background: transparent;
+            flex: none;
+            margin: 0;
+            cursor: pointer;
+            accent-color: #4a90e2;
+            justify-self: start;
+            align-self: center;
+        }
+        .ms-dropdown label > span {
+            min-width: 0;
+            margin-left: 0;
+            text-align: left;
+            justify-self: start;
+        }
+
         /* ===== 响应式 ===== */
         @media (max-width: 768px) {
             .explore-body { flex-direction: column; }
@@ -136,8 +201,9 @@
 
     <!-- ===== 选项卡 ===== -->
     <div class="tabs">
-        <button class="tab-btn active" data-tab="dataset">📁 数据集管理</button>
+        <button class="tab-btn active" data-tab="dataset" id="datasetTabBtn">📁 数据集管理</button>
         <button class="tab-btn" data-tab="explore">🔬 探索</button>
+        <button class="tab-btn" data-tab="multi">🔗 联合检索</button>
         <button class="tab-btn" data-tab="metrics">📊 性能评估</button>
     </div>
 
@@ -152,6 +218,15 @@
                     <input id="datasetFileInput" type="file" accept=".h5ad" style="flex:2;">
                     <input id="datasetNameInput" type="text" placeholder="名称（可选）" style="flex:1; padding:4px 8px; border-radius:4px; border:1px solid #ccc;">
                     <input id="datasetDimsInput" type="number" value="30" min="-1" style="width:80px; padding:4px 8px; border-radius:4px; border:1px solid #ccc;" title="-1 表示全部维度">
+
+                    <select id="datasetIndexTypeInput" style="padding:4px 8px; border-radius:4px; border:1px solid #ccc;">
+                        <option value="hnsw">HNSW</option>
+                        <option value="ivf_hnsw">IVF + HNSW</option>
+                        <option value="flat">Flat</option>
+                    </select>
+
+                    <input id="datasetNlistInput" type="number" min="1" placeholder="nlist自动" style="width:90px; padding:4px 8px; border-radius:4px; border:1px solid #ccc;" title="IVF 聚类中心数量，不填则自动估计">
+
                     <button onclick="uploadDataset()">⬆ 上传并构建</button>
                 </div>
                 <div id="datasetStatus" style="margin-top:8px; color:#666; font-size:0.9rem;">就绪</div>
@@ -209,39 +284,53 @@
                 </div>
 
                 <div class="ctrl-group">
+                    <label>
+                        检索精度
+                        <span id="precisionValue" style="font-weight:normal; color:#666;">55%</span>
+                    </label>
+                    <input
+                        id="precisionSlider"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value="55"
+                        oninput="updatePrecisionPreview()"
+                    >
+                    <div id="precisionHint" class="status-msg">
+                        平衡模式 · efSearch ≈ 73
+                    </div>
+                </div>
+
+                <div class="ctrl-group">
                     <label>过滤条件</label>
                     <div id="filtersContainer">
                         <div class="filter-row">
-                            <select class="filter-key">
+                            <select class="filter-key" onchange="onFilterKeyChange(this)">
                                 <option value="cell_type">细胞类型</option>
                                 <option value="disease">疾病</option>
                                 <option value="AgeGroup">年龄组</option>
                                 <option value="sex">性别</option>
                                 <option value="Treatment">处理组</option>
+                                <option value="Phase">阶段</option>
+                                <option value="seurat_clusters">Seurat聚类</option>
+                                <option value="donor_age">供体年龄</option>
+                            </select>
+                            <select class="filter-op" style="display:none;">
+                                <option value=">">&gt;</option>
+                                <option value="<">&lt;</option>
+                                <option value=">=">&gt;=</option>
+                                <option value="<=">&lt;=</option>
+                                <option value="==">==</option>
                             </select>
                             <input class="filter-value" placeholder="值">
-                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
-                        </div>
-                        <div class="filter-row">
-                            <select class="filter-key">
-                                <option value="disease">疾病</option>
-                                <option value="cell_type">细胞类型</option>
-                                <option value="AgeGroup">年龄组</option>
-                                <option value="sex">性别</option>
-                                <option value="Treatment">处理组</option>
-                            </select>
-                            <input class="filter-value" placeholder="值">
-                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
-                        </div>
-                        <div class="filter-row">
-                            <select class="filter-key">
-                                <option value="AgeGroup">年龄组</option>
-                                <option value="cell_type">细胞类型</option>
-                                <option value="disease">疾病</option>
-                                <option value="sex">性别</option>
-                                <option value="Treatment">处理组</option>
-                            </select>
-                            <input class="filter-value" placeholder="值">
+                            <div class="ms-wrapper" style="display:none;">
+                                <div class="ms-display" onclick="toggleMultiSelect(this)">
+                                    <span class="ms-text">点击选择...</span>
+                                    <span class="ms-arrow">▾</span>
+                                </div>
+                                <div class="ms-dropdown"></div>
+                            </div>
                             <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
                         </div>
                     </div>
@@ -265,8 +354,13 @@
                 </div>
 
                 <div class="result-panel" id="resultPanel">
-                    <h3>📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
-                    <button class="btn-secondary" onclick="analyzeCurrentResult()" style="margin-bottom:6px;">AI 分析当前结果</button>
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                        <h3 style="margin:0; font-size:1rem;">📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-secondary" onclick="analyzeCurrentResult()">AI 分析当前结果</button>
+                            <button class="btn-secondary" onclick="exportCSV()" id="exportCsvBtn" style="display:none;">📥 导出 CSV</button>
+                        </div>
+                    </div>
                     <div id="aiAnalysisPanel" class="ai-panel" style="display:none;"></div>
                     <div id="resultStatus" style="color:#888; font-size:0.9rem;">点击散点图或执行检索</div>
                     <table id="resultTable" style="display:none; width:100%;">
@@ -284,7 +378,129 @@
     </div>
 
     <!-- ========================================================== -->
-    <!-- 选项卡 3: 性能评估 -->
+    <!-- 选项卡 3: 联合检索（多数据集） -->
+    <!-- ========================================================== -->
+    <div class="tab-content" id="multi-tab">
+        <div class="explore-body">
+            <!-- 左侧控制 -->
+            <div class="explore-left">
+                <div class="ctrl-group">
+                    <label>📦 已加载数据集 <span id="multiLoadedCount" style="font-weight:normal;">(0)</span></label>
+                    <div id="multiDatasetList" style="font-size:0.8rem; max-height:180px; overflow-y:auto; background:#f8f9fa; border-radius:4px; padding:6px;">
+                        <div style="color:#999;">暂无已加载数据集</div>
+                    </div>
+                    <div style="display:flex; gap:4px; margin-top:4px;">
+                        <select id="multiAddDatasetSelect" style="flex:1; padding:4px; font-size:0.8rem;"></select>
+                        <button class="btn-secondary" onclick="multiLoadDataset()" style="font-size:0.75rem;">+ 加载</button>
+                        <button class="btn-secondary" onclick="multiLoadAllDatasets()" style="font-size:0.75rem;">全部</button>
+                    </div>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>查询方式</label>
+                    <select id="multiQueryMode" onchange="toggleMultiQueryMode()">
+                        <option value="cellid">Cell ID</option>
+                        <option value="vector">向量（粘贴）</option>
+                    </select>
+                </div>
+
+                <div class="ctrl-group" id="multiCellIdGroup">
+                    <label>Cell ID</label>
+                    <input id="multiCellIdInput" placeholder="例如 AAACCTGAGCAGGTCA-1_2">
+                </div>
+
+                <div class="ctrl-group" id="multiVectorGroup" style="display:none;">
+                    <label>向量（逗号分隔）</label>
+                    <textarea id="multiVectorInput" placeholder="0.1, 0.2, 0.3, ..."></textarea>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>Top-K</label>
+                    <input id="multiKInput" type="number" value="10" min="1" max="100">
+                </div>
+
+                <div class="ctrl-group">
+                    <label>
+                        检索精度
+                        <span id="multiPrecisionValue" style="font-weight:normal; color:#666;">55%</span>
+                    </label>
+                    <input id="multiPrecisionSlider" type="range" min="0" max="100" step="1" value="55"
+                           oninput="updateMultiPrecisionPreview()">
+                    <div id="multiPrecisionHint" class="status-msg">平衡模式 · efSearch ≈ 73</div>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>过滤条件</label>
+                    <div id="multiFiltersContainer">
+                        <div class="filter-row">
+                            <select class="filter-key" onchange="onFilterKeyChange(this)">
+                                <option value="cell_type">细胞类型</option>
+                                <option value="disease">疾病</option>
+                                <option value="AgeGroup">年龄组</option>
+                                <option value="sex">性别</option>
+                                <option value="Treatment">处理组</option>
+                                <option value="Phase">阶段</option>
+                                <option value="seurat_clusters">Seurat聚类</option>
+                                <option value="donor_age">供体年龄</option>
+                            </select>
+                            <select class="filter-op" style="display:none;">
+                                <option value=">">&gt;</option>
+                                <option value="<">&lt;</option>
+                                <option value=">=">&gt;=</option>
+                                <option value="<=">&lt;=</option>
+                                <option value="==">==</option>
+                            </select>
+                            <input class="filter-value" placeholder="值">
+                            <div class="ms-wrapper" style="display:none;">
+                                <div class="ms-display" onclick="toggleMultiSelect(this)">
+                                    <span class="ms-text">点击选择...</span>
+                                    <span class="ms-arrow">▾</span>
+                                </div>
+                                <div class="ms-dropdown"></div>
+                            </div>
+                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+                        </div>
+                    </div>
+                    <button class="btn-secondary" onclick="addMultiFilterRow()" style="width:100%; margin-top:4px;">+ 添加过滤条件</button>
+                </div>
+
+                <button class="btn-primary" id="multiSearchBtn" onclick="executeMultiSearch()">🔗 执行联合检索</button>
+                <div id="multiSearchStatus" class="status-msg"></div>
+            </div>
+
+            <!-- 右侧：结果 -->
+            <div class="explore-right">
+                <div style="flex:1; overflow:auto; padding:10px;">
+                    <div id="multiResultStatus" style="color:#888; font-size:0.9rem; padding:20px; text-align:center;">
+                        配置查询条件后点击「执行联合检索」
+                    </div>
+                    <table id="multiResultTable" style="display:none; width:100%; font-size:0.85rem; border-collapse:collapse;">
+                        <thead style="position:sticky; top:0; background:#f1f3f5; z-index:2;">
+                            <tr>
+                                <th style="padding:6px 8px; text-align:left;">Rank</th>
+                                <th style="padding:6px 8px; text-align:left;">数据集</th>
+                                <th style="padding:6px 8px; text-align:left;">Cell ID</th>
+                                <th style="padding:6px 8px; text-align:left;">Distance</th>
+                                <th style="padding:6px 8px; text-align:left;">细胞类型</th>
+                                <th style="padding:6px 8px; text-align:left;">疾病</th>
+                                <th style="padding:6px 8px; text-align:left;">其他</th>
+                            </tr>
+                        </thead>
+                        <tbody id="multiResultBody"></tbody>
+                    </table>
+                </div>
+                <div class="result-panel" id="multiResultPanel" style="height:auto; max-height:200px;">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#666;">
+                        <span id="multiResultMeta"></span>
+                        <button class="btn-secondary" onclick="exportMultiCSV()" id="multiExportBtn" style="display:none;">📥 导出 CSV</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!-- 选项卡 4: 性能评估 -->
     <!-- ========================================================== -->
     <div class="tab-content" id="metrics-tab">
         <div class="metrics-page">
@@ -326,15 +542,96 @@ let scatterData = null;
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
 let lastSearchResult = null;
+let metricsRefreshTimer = null;
 
-// 预设选项补全
+// 预设选项补全（与 generate_test_h5ad.py 保持一致，作为初始占位，启动后会从后端动态覆盖）
 const presetOptions = {
-    cell_type: ['hepatocyte','T cell','endothelial cell of hepatic sinusoid','Kupffer cell','macrophage','natural killer cell','B cell','mononuclear phagocyte','gamma-delta T cell','hematopoietic stem cell','cholangiocyte','erythrocyte','plasma cell','neutrophil','cycling myeloid cell','platelet','conventional dendritic cell'],
+    cell_type: ['T-cell','B-cell','Monocyte','NK-cell','Hepatocyte'],
     disease: ['Healthy','Cirrhosis','HCC'],
-    AgeGroup: ['Ped','Adult'],
+    AgeGroup: ['Young','Middle','Senior'],
     sex: ['Male','Female'],
-    Treatment: ['Control','Treatment']
+    Treatment: ['Control','Treatment'],
+    Phase: ['G1','S','G2M'],
+    seurat_clusters: Array.from({length: 21}, (_, i) => String(i)),
+    donor_age: []
 };
+
+// 从后端动态加载过滤字段的可选值，确保与实际数据一致
+async function loadFilterOptions() {
+    try {
+        const resp = await fetch('/filter_options');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const options = data.options || data;
+        Object.assign(presetOptions, options);
+        // 重新刷新所有可见的多选下拉框
+        document.querySelectorAll('.filter-row').forEach(row => {
+            const keySel = row.querySelector('.filter-key');
+            const msWrap = row.querySelector('.ms-wrapper');
+            if (msWrap && msWrap.style.display !== 'none' && keySel) {
+                populateMultiSelect(msWrap, keySel.value);
+            }
+        });
+    } catch (e) {
+        console.warn('加载过滤选项失败:', e);
+    }
+}
+
+// 数值型字段列表（显示运算符下拉）
+const NUMERIC_FIELDS = ['seurat_clusters', 'donor_age'];
+
+// 多选字段列表（使用 checkbox 下拉框，OR 逻辑）
+const MULTI_SELECT_FIELDS = ['cell_type', 'disease'];
+
+// ================================================================
+// ANN 检索精度控制
+// ================================================================
+function mapPrecisionToEfSearch(pct) {
+    const minEf = 16;
+    const maxEf = 256;
+    return Math.round(minEf * Math.pow(maxEf / minEf, pct / 100));
+}
+
+function mapPrecisionToNprobe(pct, nlist = 256) {
+    const maxNprobe = Math.max(1, Math.min(nlist, 64));
+    return Math.max(1, Math.round(1 + (maxNprobe - 1) * Math.pow(pct / 100, 1.3)));
+}
+
+function getPrecisionModeText(pct) {
+    if (pct < 30) return '速度优先';
+    if (pct < 70) return '平衡模式';
+    return '高精度模式';
+}
+
+function updatePrecisionPreview(indexType = null, nlist = 256) {
+    const slider = document.getElementById('precisionSlider');
+    const valueEl = document.getElementById('precisionValue');
+    const hintEl = document.getElementById('precisionHint');
+
+    if (!slider || !valueEl || !hintEl) return;
+
+    const pct = parseInt(slider.value, 10) || 55;
+    const ef = mapPrecisionToEfSearch(pct);
+
+    valueEl.textContent = `${pct}%`;
+
+    let hint = `${getPrecisionModeText(pct)} · efSearch ≈ ${ef}`;
+    if (indexType === 'ivf_hnsw' || indexType === 'ivf') {
+        hint += ` · nprobe ≈ ${mapPrecisionToNprobe(pct, nlist)}`;
+    }
+
+    hintEl.textContent = hint;
+    localStorage.setItem('ann_precision_pct', String(pct));
+}
+
+function getSearchParamsFromUI() {
+    const slider = document.getElementById('precisionSlider');
+    const precisionPct = slider ? parseInt(slider.value, 10) || 55 : 55;
+
+    return {
+        precision_pct: precisionPct
+    };
+}
 
 // ================================================================
 // 初始化
@@ -343,6 +640,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadCurrentUser();
     await loadDatasetsForSelect();
     createDatalists();
+    await loadFilterOptions();  // 加载真实数据中的过滤选项
+
+    const savedPrecision = localStorage.getItem('ann_precision_pct');
+    if (savedPrecision !== null) {
+        const slider = document.getElementById('precisionSlider');
+        if (slider) slider.value = savedPrecision;
+    }
+    updatePrecisionPreview();
+
     // 默认激活第一个选项卡（数据集）
     switchTab('dataset');
     // 预加载散点图（但仅在切换到 explore 时触发）
@@ -365,7 +671,9 @@ function switchTab(tabName) {
         loadScatterData();
     }
     if (tabName === 'metrics') {
-        loadMetrics();
+        startMetricsRefresh();
+    } else {
+        stopMetricsRefresh();
     }
 }
 
@@ -384,9 +692,19 @@ async function loadCurrentUser() {
             roleEl.textContent = '管理员';
             roleEl.className = 'role-tag admin';
             document.getElementById('adminLink').style.display = 'inline';
+            document.getElementById('datasetTabBtn').style.display = '';
         } else {
             roleEl.textContent = '用户';
             roleEl.className = 'role-tag';
+            // 普通用户隐藏数据集管理选项卡和内容
+            document.getElementById('datasetTabBtn').style.display = 'none';
+            document.getElementById('dataset-tab').classList.remove('active');
+            document.getElementById('dataset-tab').style.display = 'none';
+            // 自动切换到探索页
+            const exploreBtn = document.querySelector('[data-tab="explore"]');
+            if (exploreBtn && !exploreBtn.classList.contains('active')) {
+                switchTab('explore');
+            }
         }
     } catch (e) { window.location.href = '/login'; }
 }
@@ -429,9 +747,10 @@ function renderDatasetTable() {
         const tr = document.createElement('tr');
         const isAdmin = currentUser && currentUser.role === 'admin';
         const isDefault = ds.id === 'default';
+        // 只有管理员才显示删除按钮，默认数据集不可删除
         const deleteBtn = (isAdmin && !isDefault)
             ? `<button class="btn-danger" onclick="deleteDataset('${ds.id}')">删除</button>`
-            : `<button class="btn-danger" disabled>删除</button>`;
+            : '';
 
         tr.innerHTML = `
             <td>${escapeHtml(ds.name || ds.id)}</td>
@@ -466,12 +785,17 @@ async function uploadDataset() {
     const fileInput = document.getElementById('datasetFileInput');
     const name = document.getElementById('datasetNameInput').value.trim();
     const dims = document.getElementById('datasetDimsInput').value || '30';
+    const indexType = document.getElementById('datasetIndexTypeInput')?.value || 'hnsw';
+    const nlist = document.getElementById('datasetNlistInput')?.value || '';
     if (!fileInput.files.length) { status.textContent = '请选择 .h5ad 文件'; return; }
 
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
     formData.append('name', name);
     formData.append('dims', dims);
+    formData.append('index_type', indexType);
+    formData.append('nlist', nlist);
+    formData.append('activate', 'true');
     formData.append('activate', 'true');
 
     status.textContent = '上传中，请耐心等待（大文件可能需要几分钟）...';
@@ -539,22 +863,43 @@ function addFilterRow() {
     const row = document.createElement('div');
     row.className = 'filter-row';
     row.innerHTML = `
-        <select class="filter-key">
+        <select class="filter-key" onchange="onFilterKeyChange(this)">
             <option value="cell_type">细胞类型</option>
             <option value="disease">疾病</option>
             <option value="AgeGroup">年龄组</option>
             <option value="sex">性别</option>
             <option value="Treatment">处理组</option>
+            <option value="Phase">阶段</option>
+            <option value="seurat_clusters">Seurat聚类</option>
+            <option value="donor_age">供体年龄</option>
+        </select>
+        <select class="filter-op" style="display:none;">
+            <option value=">">&gt;</option>
+            <option value="<">&lt;</option>
+            <option value=">=">&gt;=</option>
+            <option value="<=">&lt;=</option>
+            <option value="==">==</option>
         </select>
         <input class="filter-value" placeholder="值">
+        <div class="ms-wrapper" style="display:none;">
+            <div class="ms-display" onclick="toggleMultiSelect(this)">
+                <span class="ms-text">点击选择...</span>
+                <span class="ms-arrow">▾</span>
+            </div>
+            <div class="ms-dropdown"></div>
+        </div>
         <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
     `;
     container.appendChild(row);
     // 绑定 datalist
     const inp = row.querySelector('.filter-value');
     const keySel = row.querySelector('.filter-key');
-    keySel.addEventListener('change', () => updateDatalist(inp, keySel.value));
+    keySel.addEventListener('change', () => {
+        updateDatalist(inp, keySel.value);
+        onFilterKeyChange(keySel);
+    });
     updateDatalist(inp, keySel.value);
+    onFilterKeyChange(keySel);
 }
 
 function removeFilterRow(btn) {
@@ -566,8 +911,35 @@ function getFilters() {
     const filters = {};
     document.querySelectorAll('.filter-row').forEach(row => {
         const key = row.querySelector('.filter-key').value.trim();
-        const val = row.querySelector('.filter-value').value.trim();
-        if (key && val) filters[key] = val;
+        if (!key) return;
+
+        const msWrap = row.querySelector('.ms-wrapper');
+        const valInp = row.querySelector('.filter-value');
+
+        // 多选模式：收集 checkbox 值为数组
+        if (msWrap && msWrap.style.display !== 'none') {
+            const selected = getMultiSelectValues(msWrap);
+            if (selected.length > 0) {
+                filters[key] = selected;  // 传数组，后端用 isin (OR 逻辑)
+            }
+            return;
+        }
+
+        // 文本 / 数值模式
+        const val = valInp.value.trim();
+        if (!val) return;
+        const opSel = row.querySelector('.filter-op');
+        if (opSel && opSel.style.display !== 'none') {
+            const op = opSel.value;
+            const numVal = parseFloat(val);
+            if (isNaN(numVal)) {
+                alert(`字段 "${key}" 需要输入数值`);
+                throw new Error('invalid_numeric');
+            }
+            filters[key] = { op, value: numVal };
+        } else {
+            filters[key] = val;
+        }
     });
     return Object.keys(filters).length ? filters : null;
 }
@@ -583,18 +955,114 @@ function createDatalists() {
     document.querySelectorAll('.filter-row').forEach(row => {
         const inp = row.querySelector('.filter-value');
         const keySel = row.querySelector('.filter-key');
-        if (inp && keySel) updateDatalist(inp, keySel.value);
+        if (inp && keySel) {
+            updateDatalist(inp, keySel.value);
+            onFilterKeyChange(keySel);
+        }
     });
+}
+
+// 当过滤字段改变时，切换运算符下拉和输入类型
+function onFilterKeyChange(sel) {
+    const row = sel.closest('.filter-row');
+    const opSel = row.querySelector('.filter-op');
+    const valInp = row.querySelector('.filter-value');
+    const msWrap = row.querySelector('.ms-wrapper');
+
+    if (MULTI_SELECT_FIELDS.includes(sel.value)) {
+        // 多选模式：隐藏运算符和文本输入，显示 checkbox 下拉
+        opSel.style.display = 'none';
+        valInp.style.display = 'none';
+        if (msWrap) {
+            msWrap.style.display = '';
+            populateMultiSelect(msWrap, sel.value);
+        }
+    } else if (NUMERIC_FIELDS.includes(sel.value)) {
+        opSel.style.display = '';
+        valInp.type = 'number';
+        valInp.placeholder = '数值';
+        valInp.style.display = '';
+        valInp.removeAttribute('list');
+        if (msWrap) msWrap.style.display = 'none';
+    } else {
+        opSel.style.display = 'none';
+        valInp.type = 'text';
+        valInp.placeholder = '值';
+        valInp.style.display = '';
+        updateDatalist(valInp, sel.value);
+        if (msWrap) msWrap.style.display = 'none';
+    }
 }
 function updateDatalist(inp, key) {
     if (presetOptions[key]) inp.setAttribute('list', key + 'Options');
     else inp.removeAttribute('list');
+}
+
+// ================================================================
+// 多选下拉框 (checkbox dropdown)
+// ================================================================
+function populateMultiSelect(msWrap, key) {
+    const dropdown = msWrap.querySelector('.ms-dropdown');
+    const options = presetOptions[key] || [];
+    dropdown.innerHTML = '';
+    options.forEach(val => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = val;
+        const span = document.createElement('span');
+        span.textContent = val;
+        cb.addEventListener('change', () => updateMultiSelectDisplay(msWrap));
+        label.appendChild(cb);
+        label.appendChild(span);
+        dropdown.appendChild(label);
+    });
+    updateMultiSelectDisplay(msWrap);
+}
+
+function toggleMultiSelect(displayEl) {
+    const msWrap = displayEl.closest('.ms-wrapper');
+    const dropdown = msWrap.querySelector('.ms-dropdown');
+    const isVisible = dropdown.style.display !== 'none';
+    // 先关闭所有其他下拉
+    document.querySelectorAll('.ms-dropdown').forEach(d => d.style.display = 'none');
+    if (!isVisible) {
+        dropdown.style.display = 'block';
+        // 点击外部关闭
+        setTimeout(() => {
+            const handler = function(e) {
+                if (!msWrap.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                    document.removeEventListener('click', handler);
+                }
+            };
+            document.addEventListener('click', handler);
+        }, 0);
+    }
+}
+
+function getMultiSelectValues(msWrap) {
+    const checkboxes = msWrap.querySelectorAll('.ms-dropdown input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+function updateMultiSelectDisplay(msWrap) {
+    const selected = getMultiSelectValues(msWrap);
+    const textEl = msWrap.querySelector('.ms-text');
+    if (selected.length === 0) {
+        textEl.textContent = '点击选择...';
+        textEl.classList.remove('has-selection');
+    } else {
+        textEl.textContent = `已选 ${selected.length} 项: ${selected.join(', ')}`;
+        textEl.classList.add('has-selection');
+    }
 }
 document.addEventListener('change', function(e) {
     if (e.target.classList.contains('filter-key')) {
         const row = e.target.closest('.filter-row');
         const inp = row.querySelector('.filter-value');
         updateDatalist(inp, e.target.value);
+        onFilterKeyChange(e.target);
     }
 });
 
@@ -701,17 +1169,40 @@ async function executeSearch() {
         if (vector.some(isNaN)) { alert('向量格式错误'); return; }
     }
     const k = parseInt(document.getElementById('kInput').value) || 10;
-    const filters = getFilters();
-    const payload = { k, filters };
+    let filters;
+    try {
+        filters = getFilters();
+    } catch (e) {
+        if (e.message === 'invalid_numeric') return;
+        throw e;
+    }
+    const payload = {
+    k,
+    filters,
+    search_params: getSearchParamsFromUI()
+    };
+
     if (cellId) payload.cell_id = cellId;
     else payload.vector = vector;
+
     await doSearch(payload);
 }
 
 async function executeSearchFromScatter(cellId) {
     const k = parseInt(document.getElementById('kInput').value) || 10;
-    const filters = getFilters();
-    await doSearch({ cell_id: cellId, k, filters });
+    let filters;
+    try {
+        filters = getFilters();
+    } catch (e) {
+        if (e.message === 'invalid_numeric') return;
+        throw e;
+    }
+    await doSearch({
+        cell_id: cellId,
+        k,
+        filters,
+        search_params: getSearchParamsFromUI()
+    });
 }
 
 async function doSearch(payload) {
@@ -806,6 +1297,7 @@ async function analyzeCurrentResult() {
 function resetResultTable() {
     document.getElementById('resultTable').style.display = 'none';
     document.getElementById('resultBody').innerHTML = '';
+    document.getElementById('exportCsvBtn').style.display = 'none';
     document.getElementById('aiAnalysisPanel').style.display = 'none';
     document.getElementById('aiAnalysisPanel').innerHTML = '';
 }
@@ -817,7 +1309,8 @@ function renderSearchResponse(data) {
         results: data.results || [],
         filter_info: data.filter_info,
         centroid_info: data.centroid_info,
-        natural_language_plan: data.natural_language_plan
+        natural_language_plan: data.natural_language_plan,
+        search_profile: data.search_profile
     };
 
     const status = document.getElementById('searchStatus');
@@ -827,11 +1320,36 @@ function renderSearchResponse(data) {
     const meta = document.getElementById('resultMeta');
 
     status.textContent = `✅ 完成 (${data.time_ms} ms)`;
-    const filtersText = data.filter_info ? JSON.stringify(data.filter_info.filters) : '无';
-    const planText = data.natural_language_plan ? ` | AI计划: ${data.natural_language_plan.action}` : '';
-    const centroidText = data.centroid_info ? ` | 参考细胞 ${data.centroid_info.matched_reference_cells} 个` : '';
-    meta.textContent = `过滤: ${filtersText}${planText}${centroidText}`;
+    const profile = data.search_profile || {};
+    const metaParts = [];
+
+    if (profile.precision_pct !== undefined) {
+        metaParts.push(`精度 ${profile.precision_pct}%`);
+    }
+    if (profile.ef_search !== undefined) {
+        metaParts.push(`efSearch=${profile.ef_search}`);
+    }
+    if (profile.nprobe !== undefined) {
+        metaParts.push(`nprobe=${profile.nprobe}`);
+    }
+    if (profile.index_type) {
+        metaParts.push(`索引=${profile.index_type}`);
+    }
+    if (data.filter_info) {
+        metaParts.push(`过滤策略=${data.filter_info.strategy}`);
+        if (data.filter_info.filters) {
+            metaParts.push(`过滤=${JSON.stringify(data.filter_info.filters)}`);
+        }
+    }
+    if (data.natural_language_plan) {
+        metaParts.push(`AI计划=${data.natural_language_plan.action}`);
+    }
+    if (data.centroid_info) {
+        metaParts.push(`参考细胞=${data.centroid_info.matched_reference_cells} 个`);
+    }
+    meta.textContent = metaParts.join(' | ') || '无附加参数';
     resultStatus.textContent = `共 ${(data.results || []).length} 个结果`;
+    updatePrecisionPreview(profile.index_type, profile.nlist || 256);
 
     if (!data.results || !data.results.length) {
         resultStatus.textContent = '无匹配结果';
@@ -853,6 +1371,7 @@ function renderSearchResponse(data) {
         tbody.appendChild(tr);
     });
     table.style.display = 'table';
+    document.getElementById('exportCsvBtn').style.display = '';
     document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     const resultIds = data.results.map(r => r.cell_id).filter(id => id);
@@ -903,50 +1422,100 @@ async function loadMetrics() {
         const resp = await fetch('/metrics');
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.message || data.error);
-        status.style.display = 'none';
+        status.style.display = 'block';
+        status.textContent = buildMetricsStatusText(data);
         content.style.display = 'block';
         renderMetrics(data);
     } catch (e) {
+        content.style.display = 'none';
+        status.style.display = 'block';
         status.textContent = '加载失败: ' + e.message;
     }
 }
 
+function startMetricsRefresh() {
+    loadMetrics();
+    if (metricsRefreshTimer) return;
+    metricsRefreshTimer = setInterval(() => {
+        if (document.getElementById('metrics-tab').classList.contains('active')) {
+            loadMetrics();
+        }
+    }, 3000);
+}
+
+function stopMetricsRefresh() {
+    if (!metricsRefreshTimer) return;
+    clearInterval(metricsRefreshTimer);
+    metricsRefreshTimer = null;
+}
+
+function buildMetricsStatusText(data) {
+    const live = data.live_metrics || {};
+    const report = data.evaluation_report || {};
+    const parts = [`实时刷新中`];
+    if (live.last_query_at) {
+        parts.push(`最近查询: ${new Date(live.last_query_at * 1000).toLocaleTimeString()}`);
+    }
+    if (report.available) {
+        parts.push(`Recall 来自离线评估`);
+    } else {
+        parts.push(`Recall 暂无匹配评估报告`);
+    }
+    return parts.join(' | ');
+}
+
 function renderMetrics(data) {
     const perf = data.performance_summary || {};
+    const report = data.evaluation_report || {};
+    const recall = data.recall || {};
+    const recallValues = [recall['recall@1'] || 0, recall['recall@10'] || 0, recall['recall@50'] || 0];
     // 概览
     document.getElementById('metricsOverview').innerHTML = `
         <div class="stat-item"><div class="num">${perf.query_count || 0}</div><div class="label">查询数</div></div>
-        <div class="stat-item"><div class="num">${perf.ann_avg_latency_ms || 0} ms</div><div class="label">平均延迟</div></div>
-        <div class="stat-item"><div class="num">${perf.ann_p95_latency_ms || 0} ms</div><div class="label">P95 延迟</div></div>
-        <div class="stat-item"><div class="num">${Math.round(perf.ann_qps || 0)}</div><div class="label">QPS</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_avg_latency_ms || 0} ms</div><div class="label">平均检索延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.ann_p95_latency_ms || 0} ms</div><div class="label">P95 检索延迟</div></div>
+        <div class="stat-item"><div class="num">${Number(perf.ann_qps || 0).toFixed(2)}</div><div class="label">实时 QPS</div></div>
         <div class="stat-item"><div class="num">${perf.index_size_mb || 0} MB</div><div class="label">索引大小</div></div>
         <div class="stat-item"><div class="num">${data.dataset?.total_vectors || 0}</div><div class="label">向量总数</div></div>
+        <div class="stat-item"><div class="num">${perf.avg_request_latency_ms || 0} ms</div><div class="label">平均请求延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.p95_request_latency_ms || 0} ms</div><div class="label">P95 请求延迟</div></div>
+        <div class="stat-item"><div class="num">${perf.last_search_ms || 0} ms</div><div class="label">最近检索延迟</div></div>
     `;
 
-    // 召回率
-    const recall = data.recall || {};
-    Plotly.newPlot('recallPlot', [{
+    Plotly.react('recallPlot', [{
         x: ['Recall@1', 'Recall@10', 'Recall@50'],
-        y: [recall['recall@1']||0, recall['recall@10']||0, recall['recall@50']||0],
+        y: recallValues,
         type: 'bar',
         marker: { color: ['#1f3c88','#4a63b8','#7a92d8'] }
-    }], { yaxis: { range: [0,1], title: '召回率' }, margin: { l:50, r:20, t:30, b:40 } });
+    }], {
+        yaxis: { range: [0,1], title: '召回率' },
+        margin: { l:50, r:20, t:30, b:40 },
+        title: report.available ? '离线评估 Recall@K' : '暂无匹配的离线 Recall 报告'
+    });
 
-    // 延迟对比
-    Plotly.newPlot('latencyPlot', [{
-        x: ['ANN', 'Ground Truth'],
-        y: [perf.ann_avg_latency_ms||0, perf.ground_truth_avg_latency_ms||0],
+    Plotly.react('latencyPlot', [{
+        x: ['实时检索', '实时请求', 'Ground Truth'],
+        y: [
+            perf.ann_avg_latency_ms || 0,
+            perf.avg_request_latency_ms || 0,
+            perf.ground_truth_avg_latency_ms || 0,
+        ],
         type: 'bar',
-        marker: { color: ['#4CAF50', '#FF9800'] }
-    }], { yaxis: { title: '延迟 (ms)' }, margin: { l:50, r:20, t:30, b:40 } });
+        marker: { color: ['#4CAF50', '#2196F3', '#FF9800'] }
+    }], {
+        yaxis: { title: '延迟 (ms)' },
+        margin: { l:50, r:20, t:30, b:40 }
+    });
 
-    // QPS
-    Plotly.newPlot('qpsPlot', [{
-        x: ['ANN'],
-        y: [Math.round(perf.ann_qps||0)],
+    Plotly.react('qpsPlot', [{
+        x: ['实时 QPS'],
+        y: [Number(Number(perf.ann_qps || 0).toFixed(2))],
         type: 'bar',
         marker: { color: '#2196F3' }
-    }], { yaxis: { title: 'QPS' }, margin: { l:50, r:20, t:30, b:40 } });
+    }], {
+        yaxis: { title: 'QPS' },
+        margin: { l:50, r:20, t:30, b:40 }
+    });
 }
 
 // ================================================================
@@ -957,7 +1526,362 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m] || m));
 }
 
-// 暴露给 HTML onclick
+// ================================================================
+// CSV 导出（纯前端）
+// ================================================================
+function exportCSV() {
+    const tbody = document.getElementById('resultBody');
+    const rows = tbody.querySelectorAll('tr');
+    if (!rows.length) { alert('无数据可导出'); return; }
+
+    // 从表头提取列名
+    const headers = [];
+    document.querySelectorAll('#resultTable thead th').forEach(th => {
+        headers.push(th.textContent.trim());
+    });
+
+    // 构建 CSV 文本
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(cell => {
+            let val = cell.textContent.trim();
+            // 含逗号、引号或换行的值需要用双引号包裹并转义
+            if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+                val = '"' + val.replace(/"/g, '""') + '"';
+            }
+            return val;
+        });
+        csv += rowData.join(',') + '\n';
+    });
+
+    // 触发下载（带 BOM 头确保 Excel 正确识别 UTF-8）
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    a.href = url;
+    a.download = `search_results_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// ================================================================
+// 多数据集联合检索（选项卡 3）
+// ================================================================
+
+let multiLoadedDatasets = [];
+
+async function refreshMultiStatus() {
+    try {
+        const resp = await fetch('/api/multi_status');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        multiLoadedDatasets = data.loaded_datasets || [];
+        renderMultiDatasetList();
+    } catch (e) { console.warn('刷新多检索状态失败:', e); }
+}
+
+function renderMultiDatasetList() {
+    const container = document.getElementById('multiDatasetList');
+    const countEl = document.getElementById('multiLoadedCount');
+    countEl.textContent = `(${multiLoadedDatasets.length})`;
+    if (!multiLoadedDatasets.length) {
+        container.innerHTML = '<div style="color:#999;">暂无已加载数据集</div>';
+        return;
+    }
+    container.innerHTML = multiLoadedDatasets.map(ds =>
+        `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #eee;">
+            <span><strong>${escapeHtml(ds.name)}</strong> (${ds.n_obs} 细胞, ${ds.dim}D)</span>
+            <button class="del-btn" onclick="multiUnloadDataset('${ds.id}')" style="font-size:0.7rem; padding:0 5px; height:18px;">✕</button>
+        </div>`
+    ).join('');
+}
+
+async function multiLoadDataset() {
+    const sel = document.getElementById('multiAddDatasetSelect');
+    const dsId = sel.value;
+    if (!dsId) return;
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '加载中...';
+    try {
+        const resp = await fetch('/api/multi_load', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataset_ids: [dsId]})
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        status.textContent = `✅ ${data.message}`;
+        await refreshMultiStatus();
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    }
+}
+
+async function multiLoadAllDatasets() {
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '加载所有数据集中...';
+    try {
+        const resp = await fetch('/api/multi_load', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataset_ids: allDatasets.map(d => d.id)})
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        status.textContent = `✅ ${data.message}`;
+        await refreshMultiStatus();
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    }
+}
+
+async function multiUnloadDataset(dsId) {
+    try {
+        const resp = await fetch(`/api/multi_load/${dsId}`, {method: 'DELETE'});
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        await refreshMultiStatus();
+    } catch (e) {
+        console.warn('卸载失败:', e);
+    }
+}
+
+function toggleMultiQueryMode() {
+    const mode = document.getElementById('multiQueryMode').value;
+    document.getElementById('multiCellIdGroup').style.display = (mode === 'cellid') ? 'block' : 'none';
+    document.getElementById('multiVectorGroup').style.display = (mode === 'vector') ? 'block' : 'none';
+}
+
+function updateMultiPrecisionPreview() {
+    const slider = document.getElementById('multiPrecisionSlider');
+    const pct = parseInt(slider.value, 10) || 55;
+    const ef = mapPrecisionToEfSearch(pct);
+    document.getElementById('multiPrecisionValue').textContent = `${pct}%`;
+    document.getElementById('multiPrecisionHint').textContent =
+        `${getPrecisionModeText(pct)} · efSearch ≈ ${ef}`;
+}
+
+function getMultiSearchParams() {
+    const slider = document.getElementById('multiPrecisionSlider');
+    return { precision_pct: slider ? parseInt(slider.value, 10) || 55 : 55 };
+}
+
+function addMultiFilterRow() {
+    const container = document.getElementById('multiFiltersContainer');
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+    row.innerHTML = `
+        <select class="filter-key" onchange="onFilterKeyChange(this)">
+            <option value="cell_type">细胞类型</option>
+            <option value="disease">疾病</option>
+            <option value="AgeGroup">年龄组</option>
+            <option value="sex">性别</option>
+            <option value="Treatment">处理组</option>
+            <option value="Phase">阶段</option>
+            <option value="seurat_clusters">Seurat聚类</option>
+            <option value="donor_age">供体年龄</option>
+        </select>
+        <select class="filter-op" style="display:none;">
+            <option value=">">&gt;</option>
+            <option value="<">&lt;</option>
+            <option value=">=">&gt;=</option>
+            <option value="<=">&lt;=</option>
+            <option value="==">==</option>
+        </select>
+        <input class="filter-value" placeholder="值">
+        <div class="ms-wrapper" style="display:none;">
+            <div class="ms-display" onclick="toggleMultiSelect(this)">
+                <span class="ms-text">点击选择...</span>
+                <span class="ms-arrow">▾</span>
+            </div>
+            <div class="ms-dropdown"></div>
+        </div>
+        <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+    `;
+    container.appendChild(row);
+    const inp = row.querySelector('.filter-value');
+    const keySel = row.querySelector('.filter-key');
+    keySel.addEventListener('change', () => {
+        updateDatalist(inp, keySel.value);
+        onFilterKeyChange(keySel);
+    });
+    updateDatalist(inp, keySel.value);
+    onFilterKeyChange(keySel);
+}
+
+function getMultiFilters() {
+    const filters = {};
+    document.querySelectorAll('#multiFiltersContainer .filter-row').forEach(row => {
+        const key = row.querySelector('.filter-key').value.trim();
+        if (!key) return;
+        const msWrap = row.querySelector('.ms-wrapper');
+        const valInp = row.querySelector('.filter-value');
+        if (msWrap && msWrap.style.display !== 'none') {
+            const selected = getMultiSelectValues(msWrap);
+            if (selected.length > 0) filters[key] = selected;
+            return;
+        }
+        const val = valInp.value.trim();
+        if (!val) return;
+        const opSel = row.querySelector('.filter-op');
+        if (opSel && opSel.style.display !== 'none') {
+            const op = opSel.value;
+            const numVal = parseFloat(val);
+            if (isNaN(numVal)) { alert(`字段 "${key}" 需要输入数值`); throw new Error('invalid_numeric'); }
+            filters[key] = { op, value: numVal };
+        } else {
+            filters[key] = val;
+        }
+    });
+    return Object.keys(filters).length ? filters : null;
+}
+
+async function executeMultiSearch() {
+    if (multiLoadedDatasets.length === 0) {
+        alert('请先加载至少一个数据集');
+        return;
+    }
+    const mode = document.getElementById('multiQueryMode').value;
+    let cellId = null, vector = null;
+    if (mode === 'cellid') {
+        cellId = document.getElementById('multiCellIdInput').value.trim();
+        if (!cellId) { alert('请输入 Cell ID'); return; }
+    } else {
+        const txt = document.getElementById('multiVectorInput').value.trim();
+        if (!txt) { alert('请输入向量'); return; }
+        vector = txt.split(',').map(x => parseFloat(x.trim()));
+        if (vector.some(isNaN)) { alert('向量格式错误'); return; }
+    }
+
+    const k = parseInt(document.getElementById('multiKInput').value) || 10;
+    let filters;
+    try { filters = getMultiFilters(); }
+    catch (e) { if (e.message === 'invalid_numeric') return; throw e; }
+
+    const payload = {
+        dataset_ids: multiLoadedDatasets.map(d => d.id),
+        k, filters,
+        search_params: getMultiSearchParams()
+    };
+    if (cellId) payload.cell_id = cellId;
+    else payload.vector = vector;
+
+    const btn = document.getElementById('multiSearchBtn');
+    const orig = btn.textContent;
+    btn.textContent = '检索中...';
+    btn.disabled = true;
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '跨数据集检索中...';
+
+    try {
+        const resp = await fetch('/api/multi_search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || data.message || '检索失败');
+
+        status.textContent = `✅ 完成 (${data.time_ms} ms, 共收集 ${data.total_raw || 0} 个候选，去重后 ${data.results.length} 个)`;
+
+        renderMultiResults(data);
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    } finally {
+        btn.textContent = orig;
+        btn.disabled = false;
+    }
+}
+
+function renderMultiResults(data) {
+    const tbody = document.getElementById('multiResultBody');
+    const table = document.getElementById('multiResultTable');
+    const status = document.getElementById('multiResultStatus');
+    const meta = document.getElementById('multiResultMeta');
+    const exportBtn = document.getElementById('multiExportBtn');
+
+    tbody.innerHTML = '';
+    table.style.display = 'none';
+    exportBtn.style.display = 'none';
+
+    if (!data.results || !data.results.length) {
+        status.textContent = '无匹配结果';
+        status.style.display = 'block';
+        return;
+    }
+    status.style.display = 'none';
+    table.style.display = 'table';
+    exportBtn.style.display = '';
+
+    const dsInfo = data.datasets || {};
+    const errs = data.query?.datasets_with_errors;
+    const parts = [`共 ${data.results.length} 结果 | 检索 ${Object.keys(dsInfo.queried || {}).length} 个数据集`];
+    if (errs && Object.keys(errs).length) {
+        parts.push(`⚠ ${Object.keys(errs).length} 个数据集有错误`);
+    }
+    meta.textContent = parts.join(' · ');
+
+    data.results.forEach(item => {
+        const m = item.metadata || {};
+        const dsName = item.dataset_name || item.dataset_id || '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${item.rank}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;"><span style="background:#e8f4fd; padding:1px 6px; border-radius:8px; font-size:0.75rem;">${escapeHtml(dsName)}</span></td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(item.cell_id)}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${item.distance !== null ? item.distance.toFixed(6) : '-'}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(m.cell_type || '-')}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(m.disease || '-')}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${Object.entries(m).filter(([k]) => !['cell_type','disease'].includes(k)).map(([k,v]) => `${k}:${v}`).join('; ')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function exportMultiCSV() {
+    const tbody = document.getElementById('multiResultBody');
+    const rows = tbody.querySelectorAll('tr');
+    if (!rows.length) { alert('无数据可导出'); return; }
+    const headers = ['Rank', '数据集', 'Cell ID', 'Distance', '细胞类型', '疾病', '其他'];
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(cell => {
+            let val = cell.textContent.trim();
+            if (val.includes(',') || val.includes('"') || val.includes('\n'))
+                val = '"' + val.replace(/"/g, '""') + '"';
+            return val;
+        });
+        csv += rowData.join(',') + '\n';
+    });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    a.href = url; a.download = `multi_search_results_${ts}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// 切换选项卡时刷新联合检索状态
+const _origSwitchTab = switchTab;
+switchTab = function(tabName) {
+    _origSwitchTab(tabName);
+    if (tabName === 'multi') {
+        refreshMultiStatus();
+        // 填充可加载的数据集下拉
+        const sel = document.getElementById('multiAddDatasetSelect');
+        const currentIds = multiLoadedDatasets.map(d => d.id);
+        sel.innerHTML = allDatasets
+            .filter(d => !currentIds.includes(d.id))
+            .map(d => `<option value="${d.id}">${escapeHtml(d.name || d.id)}</option>`)
+            .join('');
+    }
+};
 window.uploadDataset = uploadDataset;
 window.activateDataset = activateDataset;
 window.deleteDataset = deleteDataset;
@@ -972,6 +1896,9 @@ window.switchDataset = async function(id) {
     await activateDataset(id);
 };
 window.toggleQueryMode = toggleQueryMode;
+window.onFilterKeyChange = onFilterKeyChange;
+window.toggleMultiSelect = toggleMultiSelect;
+window.exportCSV = exportCSV;
 </script>
 </body>
 </html>

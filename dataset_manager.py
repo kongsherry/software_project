@@ -97,12 +97,13 @@ class DatasetManager:
         name: str | None = None,
         embedding: str = "X_pca",
         dims: int = 30,
-        obs_cols: str = "cell_type,disease,AgeGroup",
+        obs_cols: str = "cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age",
         l2: bool = True,
         index_type: str = "hnsw",
         metric: str = "l2",
         M: int = 32,
         ef: int = 200,
+        nlist: int | None = None,
         activate: bool = True,
     ) -> dict[str, Any]:
         if not uploaded_file or not uploaded_file.filename:
@@ -134,7 +135,13 @@ class DatasetManager:
             l2=l2,
         )
 
-        index_name = f"hnsw_M{M}_ef{ef}.index" if index_type == "hnsw" else "flat.index"
+        if index_type == "hnsw":
+            index_name = f"hnsw_M{M}_ef{ef}.index"
+        elif index_type == "ivf_hnsw":
+            nlist_tag = nlist if nlist else "auto"
+            index_name = f"ivf_hnsw_nlist{nlist_tag}_M{M}_ef{ef}.index"
+        else:
+            index_name = "flat.index"
         index_path = paths.index / index_name
         index_summary = build_index_from_vectors(
             vectors_path=str(paths.artifacts / "vectors.npy"),
@@ -143,6 +150,7 @@ class DatasetManager:
             metric=metric,
             M=M,
             efConstruction=ef,
+            nlist=nlist,
         )
 
         manifest = self._load_manifest()

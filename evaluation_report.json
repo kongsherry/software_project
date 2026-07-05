@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-28T06:31:59.491899+00:00",
+  "generated_at": "2026-07-04T11:58:59.643426+00:00",
   "dataset": {
     "id": "default",
     "name": "默认 liver 数据集",
@@ -16,9 +16,9 @@
     "recall_at_1": 0.996,
     "recall_at_10": 0.9834,
     "recall_at_50": 0.89344,
-    "ann_qps": 15856.857,
-    "ann_avg_latency_ms": 0.06,
-    "ann_p95_latency_ms": 0.08,
+    "ann_qps": 19313.893,
+    "ann_avg_latency_ms": 0.05,
+    "ann_p95_latency_ms": 0.067,
     "ground_truth_avg_latency_ms": 0.078,
     "index_size_mb": 25.816,
     "query_count": 500
@@ -31,16 +31,16 @@
   "ann_search": {
     "engine": "IndexHNSWFlat",
     "top_k_searched": 50,
-    "total_search_time_ms": 31.532,
-    "average_response_time_ms": 0.06,
-    "p95_response_time_ms": 0.08,
-    "qps": 15856.857
+    "total_search_time_ms": 25.888,
+    "average_response_time_ms": 0.05,
+    "p95_response_time_ms": 0.067,
+    "qps": 19313.893
   },
   "ground_truth": {
     "engine": "faiss.IndexFlatL2",
     "top_k_searched": 50,
-    "build_time_ms": 5.755,
-    "total_search_time_ms": 39.082,
+    "build_time_ms": 4.963,
+    "total_search_time_ms": 38.753,
     "average_response_time_ms": 0.078
   },
   "index_size": {

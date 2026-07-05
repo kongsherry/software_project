@@ -21,6 +21,9 @@ rng = np.random.default_rng(SEED)
 cell_types = ["T-cell", "B-cell", "Monocyte", "NK-cell", "Hepatocyte"]
 diseases = ["Healthy", "Cirrhosis", "HCC"]
 age_groups = ["Young", "Middle", "Senior"]
+sexes = ["Male", "Female"]
+treatments = ["Control", "Treatment"]
+phases = ["G1", "S", "G2M"]
 
 n_types = len(cell_types)
 # 每种细胞类型有一个"特征基因"模式（稀疏 + 类型特异）
@@ -57,12 +60,24 @@ cell_ids = [f"cell_{i:04d}" for i in range(N_CELLS)]
 # ── 元数据 ───────────────────────────────────────────
 disease_labels = rng.choice(diseases, size=N_CELLS)
 age_labels = rng.choice(age_groups, size=N_CELLS)
+sex_labels = rng.choice(sexes, size=N_CELLS)
+treatment_labels = rng.choice(treatments, size=N_CELLS)
+phase_labels = rng.choice(phases, size=N_CELLS)
+# seurat_clusters: 模拟 0~10 的整数聚类标签
+cluster_labels = rng.integers(0, 11, size=N_CELLS)
+# donor_age: 模拟 20~70 的年龄
+donor_age = rng.integers(20, 71, size=N_CELLS)
 
 obs = pd.DataFrame(
     {
         "cell_type": pd.Categorical(cell_type_labels),
         "disease": pd.Categorical(disease_labels),
         "AgeGroup": pd.Categorical(age_labels),
+        "sex": pd.Categorical(sex_labels),
+        "Treatment": pd.Categorical(treatment_labels),
+        "Phase": pd.Categorical(phase_labels),
+        "seurat_clusters": pd.Categorical(cluster_labels.astype(str)),
+        "donor_age": pd.Categorical(donor_age.astype(str)),
         # 额外列，测试系统对多余列的兼容性
         "n_counts": X.sum(axis=1).astype(np.int32),
         "n_genes": (X > 0).sum(axis=1).astype(np.int32),
@@ -100,3 +115,8 @@ print(f"     obsm keys: {list(adata.obsm_keys())}")
 print(f"     Cell type distribution:\n{adata.obs['cell_type'].value_counts().to_string()}")
 print(f"     Disease distribution:\n{adata.obs['disease'].value_counts().to_string()}")
 print(f"     Age group distribution:\n{adata.obs['AgeGroup'].value_counts().to_string()}")
+print(f"     Sex distribution:\n{adata.obs['sex'].value_counts().to_string()}")
+print(f"     Treatment distribution:\n{adata.obs['Treatment'].value_counts().to_string()}")
+print(f"     Phase distribution:\n{adata.obs['Phase'].value_counts().to_string()}")
+print(f"     seurat_clusters range: {cluster_labels.min()}~{cluster_labels.max()}")
+print(f"     donor_age range: {donor_age.min()}~{donor_age.max()}")
