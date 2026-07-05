@@ -197,6 +197,7 @@
     <div class="tabs">
         <button class="tab-btn active" data-tab="dataset" id="datasetTabBtn">📁 数据集管理</button>
         <button class="tab-btn" data-tab="explore">🔬 探索</button>
+        <button class="tab-btn" data-tab="multi">🔗 联合检索</button>
         <button class="tab-btn" data-tab="metrics">📊 性能评估</button>
     </div>
 
@@ -361,7 +362,129 @@
     </div>
 
     <!-- ========================================================== -->
-    <!-- 选项卡 3: 性能评估 -->
+    <!-- 选项卡 3: 联合检索（多数据集） -->
+    <!-- ========================================================== -->
+    <div class="tab-content" id="multi-tab">
+        <div class="explore-body">
+            <!-- 左侧控制 -->
+            <div class="explore-left">
+                <div class="ctrl-group">
+                    <label>📦 已加载数据集 <span id="multiLoadedCount" style="font-weight:normal;">(0)</span></label>
+                    <div id="multiDatasetList" style="font-size:0.8rem; max-height:180px; overflow-y:auto; background:#f8f9fa; border-radius:4px; padding:6px;">
+                        <div style="color:#999;">暂无已加载数据集</div>
+                    </div>
+                    <div style="display:flex; gap:4px; margin-top:4px;">
+                        <select id="multiAddDatasetSelect" style="flex:1; padding:4px; font-size:0.8rem;"></select>
+                        <button class="btn-secondary" onclick="multiLoadDataset()" style="font-size:0.75rem;">+ 加载</button>
+                        <button class="btn-secondary" onclick="multiLoadAllDatasets()" style="font-size:0.75rem;">全部</button>
+                    </div>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>查询方式</label>
+                    <select id="multiQueryMode" onchange="toggleMultiQueryMode()">
+                        <option value="cellid">Cell ID</option>
+                        <option value="vector">向量（粘贴）</option>
+                    </select>
+                </div>
+
+                <div class="ctrl-group" id="multiCellIdGroup">
+                    <label>Cell ID</label>
+                    <input id="multiCellIdInput" placeholder="例如 AAACCTGAGCAGGTCA-1_2">
+                </div>
+
+                <div class="ctrl-group" id="multiVectorGroup" style="display:none;">
+                    <label>向量（逗号分隔）</label>
+                    <textarea id="multiVectorInput" placeholder="0.1, 0.2, 0.3, ..."></textarea>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>Top-K</label>
+                    <input id="multiKInput" type="number" value="10" min="1" max="100">
+                </div>
+
+                <div class="ctrl-group">
+                    <label>
+                        检索精度
+                        <span id="multiPrecisionValue" style="font-weight:normal; color:#666;">55%</span>
+                    </label>
+                    <input id="multiPrecisionSlider" type="range" min="0" max="100" step="1" value="55"
+                           oninput="updateMultiPrecisionPreview()">
+                    <div id="multiPrecisionHint" class="status-msg">平衡模式 · efSearch ≈ 73</div>
+                </div>
+
+                <div class="ctrl-group">
+                    <label>过滤条件</label>
+                    <div id="multiFiltersContainer">
+                        <div class="filter-row">
+                            <select class="filter-key" onchange="onFilterKeyChange(this)">
+                                <option value="cell_type">细胞类型</option>
+                                <option value="disease">疾病</option>
+                                <option value="AgeGroup">年龄组</option>
+                                <option value="sex">性别</option>
+                                <option value="Treatment">处理组</option>
+                                <option value="Phase">阶段</option>
+                                <option value="seurat_clusters">Seurat聚类</option>
+                                <option value="donor_age">供体年龄</option>
+                            </select>
+                            <select class="filter-op" style="display:none;">
+                                <option value=">">&gt;</option>
+                                <option value="<">&lt;</option>
+                                <option value=">=">&gt;=</option>
+                                <option value="<=">&lt;=</option>
+                                <option value="==">==</option>
+                            </select>
+                            <input class="filter-value" placeholder="值">
+                            <div class="ms-wrapper" style="display:none;">
+                                <div class="ms-display" onclick="toggleMultiSelect(this)">
+                                    <span class="ms-text">点击选择...</span>
+                                    <span class="ms-arrow">▾</span>
+                                </div>
+                                <div class="ms-dropdown"></div>
+                            </div>
+                            <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+                        </div>
+                    </div>
+                    <button class="btn-secondary" onclick="addMultiFilterRow()" style="width:100%; margin-top:4px;">+ 添加过滤条件</button>
+                </div>
+
+                <button class="btn-primary" id="multiSearchBtn" onclick="executeMultiSearch()">🔗 执行联合检索</button>
+                <div id="multiSearchStatus" class="status-msg"></div>
+            </div>
+
+            <!-- 右侧：结果 -->
+            <div class="explore-right">
+                <div style="flex:1; overflow:auto; padding:10px;">
+                    <div id="multiResultStatus" style="color:#888; font-size:0.9rem; padding:20px; text-align:center;">
+                        配置查询条件后点击「执行联合检索」
+                    </div>
+                    <table id="multiResultTable" style="display:none; width:100%; font-size:0.85rem; border-collapse:collapse;">
+                        <thead style="position:sticky; top:0; background:#f1f3f5; z-index:2;">
+                            <tr>
+                                <th style="padding:6px 8px; text-align:left;">Rank</th>
+                                <th style="padding:6px 8px; text-align:left;">数据集</th>
+                                <th style="padding:6px 8px; text-align:left;">Cell ID</th>
+                                <th style="padding:6px 8px; text-align:left;">Distance</th>
+                                <th style="padding:6px 8px; text-align:left;">细胞类型</th>
+                                <th style="padding:6px 8px; text-align:left;">疾病</th>
+                                <th style="padding:6px 8px; text-align:left;">其他</th>
+                            </tr>
+                        </thead>
+                        <tbody id="multiResultBody"></tbody>
+                    </table>
+                </div>
+                <div class="result-panel" id="multiResultPanel" style="height:auto; max-height:200px;">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#666;">
+                        <span id="multiResultMeta"></span>
+                        <button class="btn-secondary" onclick="exportMultiCSV()" id="multiExportBtn" style="display:none;">📥 导出 CSV</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!-- 选项卡 4: 性能评估 -->
     <!-- ========================================================== -->
     <div class="tab-content" id="metrics-tab">
         <div class="metrics-page">
@@ -1324,7 +1447,320 @@ function exportCSV() {
     URL.revokeObjectURL(url);
 }
 
-// 暴露给 HTML onclick
+// ================================================================
+// 多数据集联合检索（选项卡 3）
+// ================================================================
+
+let multiLoadedDatasets = [];
+
+async function refreshMultiStatus() {
+    try {
+        const resp = await fetch('/api/multi_status');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        multiLoadedDatasets = data.loaded_datasets || [];
+        renderMultiDatasetList();
+    } catch (e) { console.warn('刷新多检索状态失败:', e); }
+}
+
+function renderMultiDatasetList() {
+    const container = document.getElementById('multiDatasetList');
+    const countEl = document.getElementById('multiLoadedCount');
+    countEl.textContent = `(${multiLoadedDatasets.length})`;
+    if (!multiLoadedDatasets.length) {
+        container.innerHTML = '<div style="color:#999;">暂无已加载数据集</div>';
+        return;
+    }
+    container.innerHTML = multiLoadedDatasets.map(ds =>
+        `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid #eee;">
+            <span><strong>${escapeHtml(ds.name)}</strong> (${ds.n_obs} 细胞, ${ds.dim}D)</span>
+            <button class="del-btn" onclick="multiUnloadDataset('${ds.id}')" style="font-size:0.7rem; padding:0 5px; height:18px;">✕</button>
+        </div>`
+    ).join('');
+}
+
+async function multiLoadDataset() {
+    const sel = document.getElementById('multiAddDatasetSelect');
+    const dsId = sel.value;
+    if (!dsId) return;
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '加载中...';
+    try {
+        const resp = await fetch('/api/multi_load', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataset_ids: [dsId]})
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        status.textContent = `✅ ${data.message}`;
+        await refreshMultiStatus();
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    }
+}
+
+async function multiLoadAllDatasets() {
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '加载所有数据集中...';
+    try {
+        const resp = await fetch('/api/multi_load', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataset_ids: allDatasets.map(d => d.id)})
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        status.textContent = `✅ ${data.message}`;
+        await refreshMultiStatus();
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    }
+}
+
+async function multiUnloadDataset(dsId) {
+    try {
+        const resp = await fetch(`/api/multi_load/${dsId}`, {method: 'DELETE'});
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        await refreshMultiStatus();
+    } catch (e) {
+        console.warn('卸载失败:', e);
+    }
+}
+
+function toggleMultiQueryMode() {
+    const mode = document.getElementById('multiQueryMode').value;
+    document.getElementById('multiCellIdGroup').style.display = (mode === 'cellid') ? 'block' : 'none';
+    document.getElementById('multiVectorGroup').style.display = (mode === 'vector') ? 'block' : 'none';
+}
+
+function updateMultiPrecisionPreview() {
+    const slider = document.getElementById('multiPrecisionSlider');
+    const pct = parseInt(slider.value, 10) || 55;
+    const ef = mapPrecisionToEfSearch(pct);
+    document.getElementById('multiPrecisionValue').textContent = `${pct}%`;
+    document.getElementById('multiPrecisionHint').textContent =
+        `${getPrecisionModeText(pct)} · efSearch ≈ ${ef}`;
+}
+
+function getMultiSearchParams() {
+    const slider = document.getElementById('multiPrecisionSlider');
+    return { precision_pct: slider ? parseInt(slider.value, 10) || 55 : 55 };
+}
+
+function addMultiFilterRow() {
+    const container = document.getElementById('multiFiltersContainer');
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+    row.innerHTML = `
+        <select class="filter-key" onchange="onFilterKeyChange(this)">
+            <option value="cell_type">细胞类型</option>
+            <option value="disease">疾病</option>
+            <option value="AgeGroup">年龄组</option>
+            <option value="sex">性别</option>
+            <option value="Treatment">处理组</option>
+            <option value="Phase">阶段</option>
+            <option value="seurat_clusters">Seurat聚类</option>
+            <option value="donor_age">供体年龄</option>
+        </select>
+        <select class="filter-op" style="display:none;">
+            <option value=">">&gt;</option>
+            <option value="<">&lt;</option>
+            <option value=">=">&gt;=</option>
+            <option value="<=">&lt;=</option>
+            <option value="==">==</option>
+        </select>
+        <input class="filter-value" placeholder="值">
+        <div class="ms-wrapper" style="display:none;">
+            <div class="ms-display" onclick="toggleMultiSelect(this)">
+                <span class="ms-text">点击选择...</span>
+                <span class="ms-arrow">▾</span>
+            </div>
+            <div class="ms-dropdown"></div>
+        </div>
+        <button class="del-btn" onclick="removeFilterRow(this)">✕</button>
+    `;
+    container.appendChild(row);
+    const inp = row.querySelector('.filter-value');
+    const keySel = row.querySelector('.filter-key');
+    keySel.addEventListener('change', () => {
+        updateDatalist(inp, keySel.value);
+        onFilterKeyChange(keySel);
+    });
+    updateDatalist(inp, keySel.value);
+    onFilterKeyChange(keySel);
+}
+
+function getMultiFilters() {
+    const filters = {};
+    document.querySelectorAll('#multiFiltersContainer .filter-row').forEach(row => {
+        const key = row.querySelector('.filter-key').value.trim();
+        if (!key) return;
+        const msWrap = row.querySelector('.ms-wrapper');
+        const valInp = row.querySelector('.filter-value');
+        if (msWrap && msWrap.style.display !== 'none') {
+            const selected = getMultiSelectValues(msWrap);
+            if (selected.length > 0) filters[key] = selected;
+            return;
+        }
+        const val = valInp.value.trim();
+        if (!val) return;
+        const opSel = row.querySelector('.filter-op');
+        if (opSel && opSel.style.display !== 'none') {
+            const op = opSel.value;
+            const numVal = parseFloat(val);
+            if (isNaN(numVal)) { alert(`字段 "${key}" 需要输入数值`); throw new Error('invalid_numeric'); }
+            filters[key] = { op, value: numVal };
+        } else {
+            filters[key] = val;
+        }
+    });
+    return Object.keys(filters).length ? filters : null;
+}
+
+async function executeMultiSearch() {
+    if (multiLoadedDatasets.length === 0) {
+        alert('请先加载至少一个数据集');
+        return;
+    }
+    const mode = document.getElementById('multiQueryMode').value;
+    let cellId = null, vector = null;
+    if (mode === 'cellid') {
+        cellId = document.getElementById('multiCellIdInput').value.trim();
+        if (!cellId) { alert('请输入 Cell ID'); return; }
+    } else {
+        const txt = document.getElementById('multiVectorInput').value.trim();
+        if (!txt) { alert('请输入向量'); return; }
+        vector = txt.split(',').map(x => parseFloat(x.trim()));
+        if (vector.some(isNaN)) { alert('向量格式错误'); return; }
+    }
+
+    const k = parseInt(document.getElementById('multiKInput').value) || 10;
+    let filters;
+    try { filters = getMultiFilters(); }
+    catch (e) { if (e.message === 'invalid_numeric') return; throw e; }
+
+    const payload = {
+        dataset_ids: multiLoadedDatasets.map(d => d.id),
+        k, filters,
+        search_params: getMultiSearchParams()
+    };
+    if (cellId) payload.cell_id = cellId;
+    else payload.vector = vector;
+
+    const btn = document.getElementById('multiSearchBtn');
+    const orig = btn.textContent;
+    btn.textContent = '检索中...';
+    btn.disabled = true;
+    const status = document.getElementById('multiSearchStatus');
+    status.textContent = '跨数据集检索中...';
+
+    try {
+        const resp = await fetch('/api/multi_search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || data.message || '检索失败');
+
+        status.textContent = `✅ 完成 (${data.time_ms} ms, 共收集 ${data.total_raw || 0} 个候选，去重后 ${data.results.length} 个)`;
+
+        renderMultiResults(data);
+    } catch (e) {
+        status.textContent = '❌ ' + e.message;
+    } finally {
+        btn.textContent = orig;
+        btn.disabled = false;
+    }
+}
+
+function renderMultiResults(data) {
+    const tbody = document.getElementById('multiResultBody');
+    const table = document.getElementById('multiResultTable');
+    const status = document.getElementById('multiResultStatus');
+    const meta = document.getElementById('multiResultMeta');
+    const exportBtn = document.getElementById('multiExportBtn');
+
+    tbody.innerHTML = '';
+    table.style.display = 'none';
+    exportBtn.style.display = 'none';
+
+    if (!data.results || !data.results.length) {
+        status.textContent = '无匹配结果';
+        status.style.display = 'block';
+        return;
+    }
+    status.style.display = 'none';
+    table.style.display = 'table';
+    exportBtn.style.display = '';
+
+    const dsInfo = data.datasets || {};
+    const errs = data.query?.datasets_with_errors;
+    const parts = [`共 ${data.results.length} 结果 | 检索 ${Object.keys(dsInfo.queried || {}).length} 个数据集`];
+    if (errs && Object.keys(errs).length) {
+        parts.push(`⚠ ${Object.keys(errs).length} 个数据集有错误`);
+    }
+    meta.textContent = parts.join(' · ');
+
+    data.results.forEach(item => {
+        const m = item.metadata || {};
+        const dsName = item.dataset_name || item.dataset_id || '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${item.rank}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;"><span style="background:#e8f4fd; padding:1px 6px; border-radius:8px; font-size:0.75rem;">${escapeHtml(dsName)}</span></td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(item.cell_id)}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${item.distance !== null ? item.distance.toFixed(6) : '-'}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(m.cell_type || '-')}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${escapeHtml(m.disease || '-')}</td>
+            <td style="padding:4px 8px; border-bottom:1px solid #f0f0f0;">${Object.entries(m).filter(([k]) => !['cell_type','disease'].includes(k)).map(([k,v]) => `${k}:${v}`).join('; ')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function exportMultiCSV() {
+    const tbody = document.getElementById('multiResultBody');
+    const rows = tbody.querySelectorAll('tr');
+    if (!rows.length) { alert('无数据可导出'); return; }
+    const headers = ['Rank', '数据集', 'Cell ID', 'Distance', '细胞类型', '疾病', '其他'];
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(cell => {
+            let val = cell.textContent.trim();
+            if (val.includes(',') || val.includes('"') || val.includes('\n'))
+                val = '"' + val.replace(/"/g, '""') + '"';
+            return val;
+        });
+        csv += rowData.join(',') + '\n';
+    });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    a.href = url; a.download = `multi_search_results_${ts}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// 切换选项卡时刷新联合检索状态
+const _origSwitchTab = switchTab;
+switchTab = function(tabName) {
+    _origSwitchTab(tabName);
+    if (tabName === 'multi') {
+        refreshMultiStatus();
+        // 填充可加载的数据集下拉
+        const sel = document.getElementById('multiAddDatasetSelect');
+        const currentIds = multiLoadedDatasets.map(d => d.id);
+        sel.innerHTML = allDatasets
+            .filter(d => !currentIds.includes(d.id))
+            .map(d => `<option value="${d.id}">${escapeHtml(d.name || d.id)}</option>`)
+            .join('');
+    }
+};
 window.uploadDataset = uploadDataset;
 window.activateDataset = activateDataset;
 window.deleteDataset = deleteDataset;

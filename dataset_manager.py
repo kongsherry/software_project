@@ -97,7 +97,7 @@ class DatasetManager:
         name: str | None = None,
         embedding: str = "X_pca",
         dims: int = 30,
-        obs_cols: str = "cell_type,disease,AgeGroup",
+        obs_cols: str = "cell_type,disease,AgeGroup,sex,Treatment,Phase,seurat_clusters,donor_age",
         l2: bool = True,
         index_type: str = "hnsw",
         metric: str = "l2",

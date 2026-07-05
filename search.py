@@ -55,6 +55,13 @@ class AnnSearcher:
     def metric(self) -> str:
         return "ip" if self._metric_type == faiss.METRIC_INNER_PRODUCT else "l2"
 
+    def get_vector_by_cell_id(self, cell_id: str) -> np.ndarray:
+        """根据细胞ID获取对应的向量（用于跨数据集检索时提取查询向量）。"""
+        idx = self._id_to_idx.get(cell_id)
+        if idx is None:
+            raise KeyError(f"未找到细胞ID: {cell_id}")
+        return self.vectors[idx: idx + 1].copy()
+
     def search_by_cell_id(
         self,
         cell_id: str,
