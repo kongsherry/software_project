@@ -548,16 +548,25 @@ let highlightIds = []; // 用于反向高亮
 let lastSearchResult = null;
 let metricsRefreshTimer = null;
 
-// 预设选项补全（与 generate_test_h5ad.py 保持一致，作为初始占位，启动后会从后端动态覆盖）
+// 预设选项补全（与 liver.h5ad 实际数据保持一致，启动后会被 /filter_options 动态覆盖）
 const presetOptions = {
-    cell_type: ['T-cell','B-cell','Monocyte','NK-cell','Hepatocyte'],
-    disease: ['Healthy','Cirrhosis','HCC'],
-    AgeGroup: ['Young','Middle','Senior'],
-    sex: ['Male','Female'],
-    Treatment: ['Control','Treatment'],
-    Phase: ['G1','S','G2M'],
-    seurat_clusters: Array.from({length: 21}, (_, i) => String(i)),
-    donor_age: []
+    cell_type: [
+        'cholangiocyte', 'conventional dendritic cell', 'cycling myeloid cell',
+        'cycling plasma cell', 'endothelial cell of hepatic sinusoid', 'erythrocyte',
+        'gamma-delta T cell', 'hematopoietic stem cell', 'hepatocyte', 'Kupffer cell',
+        'macrophage', 'mature B cell', 'mononuclear phagocyte', 'natural killer cell',
+        'neutrophil', 'plasma cell', 'platelet', 'T cell', 'unknown'
+    ],
+    disease: ['normal'],
+    AgeGroup: ['Adult', 'Ped'],
+    sex: ['female', 'male'],
+    Treatment: ['Healthy'],
+    Phase: ['G1', 'G2M', 'S'],
+    seurat_clusters: Array.from({length: 35}, (_, i) => String(i)),
+    donor_age: [
+        '1-4 years', '5-14 years', '15-19 years', '15-30 years',
+        '26 years', '30-60 years', '57 years', '69 years', '>60 years'
+    ]
 };
 
 // 从后端动态加载过滤字段的可选值，确保与实际数据一致
