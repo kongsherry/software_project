@@ -65,6 +65,10 @@
         .explore-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #f8f9fa; }
         .scatter-wrap { flex: 1; padding: 10px; position: relative; min-height: 300px; }
         #scatterPlot { width: 100%; height: 100%; min-height: 400px; }
+        .explore-right.results-expanded .scatter-wrap { display: none; }
+        .explore-right.results-expanded .result-panel {
+            flex: 1; height: auto; min-height: 0; border-top: none;
+        }
 
         /* 结果面板 */
         .result-panel {
@@ -346,7 +350,7 @@
             </div>
 
             <!-- 右侧：散点图 + 结果 -->
-            <div class="explore-right">
+            <div class="explore-right" id="exploreRightPane">
                 <div class="scatter-wrap">
                     <div id="scatterPlot"></div>
                     <div id="scatterLoading" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:none;">
@@ -361,6 +365,7 @@
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
                         <h3 style="margin:0; font-size:1rem;">📋 检索结果 <span id="resultMeta" style="font-weight:normal; font-size:0.85rem; color:#888;"></span></h3>
                         <div style="display:flex; gap:6px;">
+                            <button class="btn-secondary" onclick="toggleResultExpanded()" id="resultExpandBtn">⛶ 结果全屏</button>
                             <button class="btn-secondary" onclick="analyzeCurrentResult()">AI 分析当前结果</button>
                             <button class="btn-secondary" onclick="exportCSV()" id="exportCsvBtn" style="display:none;">📥 导出 CSV</button>
                         </div>
@@ -548,8 +553,8 @@ let highlightIds = []; // 用于反向高亮
 let lastSearchResult = null;
 let metricsRefreshTimer = null;
 
-// 预设选项补全（与 liver.h5ad 实际数据保持一致，启动后会被 /filter_options 动态覆盖）
-const presetOptions = {
+// 过滤字段初始占位。当前数据集加载后会被 /filter_options 完整替换。
+const DEFAULT_FILTER_OPTIONS = {
     cell_type: [
         'cholangiocyte', 'conventional dendritic cell', 'cycling myeloid cell',
         'cycling plasma cell', 'endothelial cell of hepatic sinusoid', 'erythrocyte',
@@ -568,6 +573,7 @@ const presetOptions = {
         '26 years', '30-60 years', '57 years', '69 years', '>60 years'
     ]
 };
+let filterOptions = { ...DEFAULT_FILTER_OPTIONS };
 
 // 从后端动态加载过滤字段的可选值，确保与实际数据一致
 async function loadFilterOptions() {
@@ -576,9 +582,10 @@ async function loadFilterOptions() {
         if (!resp.ok) return;
         const data = await resp.json();
         const options = data.options || data;
-        Object.assign(presetOptions, options);
+        filterOptions = { ...options };
         // 动态检测字段类型
         detectFieldTypes();
+        createDatalists();
         // 刷新所有过滤行的字段下拉选项，并重新判定输入模式
         document.querySelectorAll('.filter-row').forEach(row => {
             const keySel = row.querySelector('.filter-key');
@@ -601,11 +608,11 @@ let NUMERIC_FIELDS = [];
 // 多选字段列表（使用 checkbox 下拉框，OR 逻辑）— 由 loadFilterOptions 动态填充
 let MULTI_SELECT_FIELDS = [];
 
-// 根据 presetOptions 动态判断字段类型
+// 根据当前数据集过滤选项动态判断字段类型
 function detectFieldTypes() {
     NUMERIC_FIELDS = [];
     MULTI_SELECT_FIELDS = [];
-    for (const [key, values] of Object.entries(presetOptions)) {
+    for (const [key, values] of Object.entries(filterOptions)) {
         if (!Array.isArray(values) || values.length === 0) continue;
         // 如果所有值都能解析为数字，则为数值型字段
         if (values.every(v => v !== '' && v !== null && !isNaN(Number(v)))) {
@@ -619,7 +626,7 @@ function detectFieldTypes() {
 
 // 动态生成过滤字段下拉选项
 function buildFilterKeyOptions() {
-    return Object.keys(presetOptions).map(key =>
+    return Object.keys(filterOptions).map(key =>
         `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`
     ).join('');
 }
@@ -680,7 +687,7 @@ function getSearchParamsFromUI() {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadCurrentUser();
     await loadDatasetsForSelect();
-    detectFieldTypes();         // 先用 presetOptions 预设值判断字段类型
+    detectFieldTypes();         // 先用默认选项判断字段类型
     createDatalists();
     await loadFilterOptions();  // 加载真实数据中的过滤选项（会再次更新字段类型）
 
@@ -691,8 +698,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     updatePrecisionPreview();
 
-    // 默认激活第一个选项卡（数据集）
-    switchTab('dataset');
+    // 管理员默认进入数据集页；普通用户没有数据集管理权限，默认进入探索页。
+    switchTab(currentUser && currentUser.role === 'admin' ? 'dataset' : 'explore');
     // 预加载散点图（但仅在切换到 explore 时触发）
 });
 
@@ -838,7 +845,6 @@ async function uploadDataset() {
     formData.append('index_type', indexType);
     formData.append('nlist', nlist);
     formData.append('activate', 'true');
-    formData.append('activate', 'true');
 
     status.textContent = '上传中，请耐心等待（大文件可能需要几分钟）...';
     try {
@@ -849,6 +855,7 @@ async function uploadDataset() {
         fileInput.value = '';
         status.textContent = '✅ 上传成功！';
         await loadDatasetsForSelect();
+        await loadFilterOptions();
         // 重置散点图缓存
         scatterData = null;
         if (document.getElementById('explore-tab').classList.contains('active')) {
@@ -868,6 +875,7 @@ async function activateDataset(id) {
         if (!resp.ok) throw new Error(data.message);
         activeDatasetId = id;
         await loadDatasetsForSelect();
+        await loadFilterOptions();
         scatterData = null;
         if (document.getElementById('explore-tab').classList.contains('active')) {
             loadScatterData();
@@ -888,6 +896,7 @@ async function deleteDataset(id) {
         if (!resp.ok) throw new Error(data.message || data.error);
         status.textContent = '✅ 已删除';
         await loadDatasetsForSelect();
+        await loadFilterOptions();
         scatterData = null;
         if (document.getElementById('explore-tab').classList.contains('active')) {
             loadScatterData();
@@ -981,9 +990,11 @@ function getFilters() {
 
 function createDatalists() {
     const container = document.body;
-    for (const [key, vals] of Object.entries(presetOptions)) {
+    document.querySelectorAll('datalist[data-filter-options="true"]').forEach(dl => dl.remove());
+    for (const [key, vals] of Object.entries(filterOptions)) {
         const dl = document.createElement('datalist');
         dl.id = key + 'Options';
+        dl.dataset.filterOptions = 'true';
         vals.forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
         container.appendChild(dl);
     }
@@ -1029,7 +1040,7 @@ function onFilterKeyChange(sel) {
     }
 }
 function updateDatalist(inp, key) {
-    if (presetOptions[key]) inp.setAttribute('list', key + 'Options');
+    if (filterOptions[key]) inp.setAttribute('list', key + 'Options');
     else inp.removeAttribute('list');
 }
 
@@ -1038,7 +1049,7 @@ function updateDatalist(inp, key) {
 // ================================================================
 function populateMultiSelect(msWrap, key) {
     const dropdown = msWrap.querySelector('.ms-dropdown');
-    const options = presetOptions[key] || [];
+    const options = filterOptions[key] || [];
     dropdown.innerHTML = '';
     options.forEach(val => {
         const label = document.createElement('label');
@@ -1335,6 +1346,21 @@ function resetResultTable() {
     document.getElementById('exportCsvBtn').style.display = 'none';
     document.getElementById('aiAnalysisPanel').style.display = 'none';
     document.getElementById('aiAnalysisPanel').innerHTML = '';
+}
+
+function toggleResultExpanded() {
+    const pane = document.getElementById('exploreRightPane');
+    const btn = document.getElementById('resultExpandBtn');
+    if (!pane || !btn) return;
+
+    const expanded = pane.classList.toggle('results-expanded');
+    btn.textContent = expanded ? '↙ 恢复散点图' : '⛶ 结果全屏';
+
+    if (!expanded && scatterData) {
+        setTimeout(() => {
+            if (window.Plotly) Plotly.Plots.resize('scatterPlot');
+        }, 0);
+    }
 }
 
 function renderSearchResponse(data) {
@@ -1918,6 +1944,7 @@ window.removeFilterRow = removeFilterRow;
 window.executeSearch = executeSearch;
 window.executeNaturalLanguageQuery = executeNaturalLanguageQuery;
 window.analyzeCurrentResult = analyzeCurrentResult;
+window.toggleResultExpanded = toggleResultExpanded;
 window.handleLogout = handleLogout;
 window.switchDataset = async function(id) {
     if (id === activeDatasetId) return;
