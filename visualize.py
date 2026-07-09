@@ -123,8 +123,8 @@ class ScatterDataProvider:
         if metadata_fields:
             wanted_fields = metadata_fields
         else:
-            # 动态从 metadata 中获取所有列（排除 cell_id）
-            wanted_fields = [c for c in metadata.columns if c != "cell_id"]
+            default_fields = ["cell_type", "disease", "AgeGroup"]
+            wanted_fields = [c for c in default_fields if c in metadata.columns]
 
         wanted_fields = [
             c for c in wanted_fields

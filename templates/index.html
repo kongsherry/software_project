@@ -548,6 +548,7 @@ let currentUser = null;
 let allDatasets = [];
 let activeDatasetId = null;
 let scatterData = null;
+let scatterPointById = new Map();
 let isSearching = false;
 let highlightIds = []; // 用于反向高亮
 let lastSearchResult = null;
@@ -1133,6 +1134,7 @@ async function loadScatterData() {
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.message);
         scatterData = data;
+        scatterPointById = new Map((data.points || []).map(p => [p.cell_id, p]));
         renderScatterPlot(highlightIds);
     } catch (e) {
         document.getElementById('scatterStatus').textContent = '散点图加载失败: ' + e.message;
@@ -1148,30 +1150,22 @@ function renderScatterPlot(highlightIds = []) {
     const ys = points.map(p => p.y);
     const cellIds = points.map(p => p.cell_id);
     const types = points.map(p => p.cell_type || 'Unknown');
-
-    const colors = [];
-    const sizes = [];
-    const highlightSet = new Set(highlightIds);
-
-    cellIds.forEach((id, i) => {
-        if (highlightSet.has(id)) {
-            colors.push('red');
-            sizes.push(14);
-        } else {
-            // 按类型分配颜色（简化）
-            const idx = types.indexOf(types[i]) % 20;
-            colors.push(`hsl(${idx * 18}, 70%, 55%)`);
-            sizes.push(6);
-        }
+    const typeIndex = new Map();
+    const colors = types.map(type => {
+        if (!typeIndex.has(type)) typeIndex.set(type, typeIndex.size);
+        return `hsl(${typeIndex.get(type) * 18 % 360}, 70%, 55%)`;
     });
 
     const trace = {
-        x: xs, y: ys, mode: 'markers', type: 'scatter',
-        marker: { size: sizes, color: colors, opacity: 0.85, line: { width: 0.5, color: '#333' } },
+        x: xs, y: ys, mode: 'markers', type: 'scattergl',
+        marker: { size: 5, color: colors, opacity: 0.72 },
         text: cellIds.map((id, i) => `Cell: ${id}<br>Type: ${types[i]}`),
         hoverinfo: 'text',
-        customdata: cellIds
+        customdata: cellIds,
+        name: 'cells'
     };
+
+    const highlightTrace = buildHighlightTrace(highlightIds);
 
     const layout = {
         margin: { l: 40, r: 20, t: 20, b: 40 },
@@ -1181,7 +1175,7 @@ function renderScatterPlot(highlightIds = []) {
         showlegend: false
     };
 
-    Plotly.react('scatterPlot', [trace], layout, { responsive: true });
+    Plotly.react('scatterPlot', [trace, highlightTrace], layout, { responsive: true });
 
     // 绑定点击（重新绑定）
     document.getElementById('scatterPlot').on('plotly_click', function(data) {
@@ -1195,7 +1189,45 @@ function renderScatterPlot(highlightIds = []) {
 // 外部调用更新高亮
 function updateScatterHighlights(newHighlightIds) {
     highlightIds = newHighlightIds || [];
-    renderScatterPlot(highlightIds);
+    if (!scatterData) return;
+    const highlightTrace = buildHighlightTrace(highlightIds);
+    const plot = document.getElementById('scatterPlot');
+    if (plot && plot.data && plot.data.length >= 2) {
+        Plotly.restyle(
+            'scatterPlot',
+            {
+                x: [highlightTrace.x],
+                y: [highlightTrace.y],
+                text: [highlightTrace.text],
+                customdata: [highlightTrace.customdata],
+            },
+            [1]
+        );
+    } else {
+        renderScatterPlot(highlightIds);
+    }
+}
+
+function buildHighlightTrace(ids = []) {
+    const points = ids
+        .map(id => scatterPointById.get(id))
+        .filter(Boolean);
+    return {
+        x: points.map(p => p.x),
+        y: points.map(p => p.y),
+        mode: 'markers',
+        type: 'scattergl',
+        marker: {
+            size: 13,
+            color: '#e03131',
+            opacity: 0.95,
+            line: { width: 1.5, color: '#ffffff' },
+        },
+        text: points.map(p => `Cell: ${p.cell_id}<br>Type: ${p.cell_type || 'Unknown'}<br>查询结果高亮`),
+        hoverinfo: 'text',
+        customdata: points.map(p => p.cell_id),
+        name: 'highlight',
+    };
 }
 
 // ================================================================
@@ -1437,9 +1469,7 @@ function renderSearchResponse(data) {
 
     const resultIds = data.results.map(r => r.cell_id).filter(id => id);
     if (resultIds.length && scatterData) {
-        const visibleIds = resultIds.filter(id =>
-            scatterData.points.some(p => p.cell_id === id)
-        );
+        const visibleIds = resultIds.filter(id => scatterPointById.has(id));
         updateScatterHighlights(resultIds);
         document.getElementById('resultMeta').textContent +=
             ` | 散点图高亮 ${visibleIds.length}/${resultIds.length} 个`;
