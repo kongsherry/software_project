@@ -817,10 +817,7 @@ def create_app() -> Flask:
     @login_required
     def filter_options():
         dataset = dataset_manager.get_active_dataset()
-        options = _load_filter_options(
-            dataset["metadata_path"],
-            fields=["cell_type", "disease", "AgeGroup", "sex", "Treatment", "Phase"],
-        )
+        options = _load_filter_options(dataset["metadata_path"])
         return jsonify({
             "dataset_id": dataset["id"],
             "options": options,

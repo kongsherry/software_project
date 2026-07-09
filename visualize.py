@@ -120,12 +120,11 @@ class ScatterDataProvider:
             )
             sampled = True
 
-        default_fields = ["cell_type", "disease", "AgeGroup", "batch", "sample"]
-
         if metadata_fields:
             wanted_fields = metadata_fields
         else:
-            wanted_fields = [c for c in default_fields if c in metadata.columns]
+            # 动态从 metadata 中获取所有列（排除 cell_id）
+            wanted_fields = [c for c in metadata.columns if c != "cell_id"]
 
         wanted_fields = [
             c for c in wanted_fields

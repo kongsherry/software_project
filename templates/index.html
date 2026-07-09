@@ -577,12 +577,17 @@ async function loadFilterOptions() {
         const data = await resp.json();
         const options = data.options || data;
         Object.assign(presetOptions, options);
-        // 重新刷新所有可见的多选下拉框
+        // 动态检测字段类型
+        detectFieldTypes();
+        // 刷新所有过滤行的字段下拉选项，并重新判定输入模式
         document.querySelectorAll('.filter-row').forEach(row => {
             const keySel = row.querySelector('.filter-key');
-            const msWrap = row.querySelector('.ms-wrapper');
-            if (msWrap && msWrap.style.display !== 'none' && keySel) {
-                populateMultiSelect(msWrap, keySel.value);
+            if (keySel) {
+                const currentVal = keySel.value;
+                keySel.innerHTML = buildFilterKeyOptions();
+                keySel.value = currentVal;  // 保留当前选中值（如果仍存在）
+                if (!keySel.value) keySel.selectedIndex = 0;
+                onFilterKeyChange(keySel);  // 重新判定输入模式（文本框/运算符/勾选框）
             }
         });
     } catch (e) {
@@ -590,11 +595,34 @@ async function loadFilterOptions() {
     }
 }
 
-// 数值型字段列表（显示运算符下拉）
-const NUMERIC_FIELDS = ['seurat_clusters', 'donor_age'];
+// 数值型字段列表（显示运算符下拉）— 由 loadFilterOptions 动态填充
+let NUMERIC_FIELDS = [];
 
-// 多选字段列表（使用 checkbox 下拉框，OR 逻辑）
-const MULTI_SELECT_FIELDS = ['cell_type', 'disease'];
+// 多选字段列表（使用 checkbox 下拉框，OR 逻辑）— 由 loadFilterOptions 动态填充
+let MULTI_SELECT_FIELDS = [];
+
+// 根据 presetOptions 动态判断字段类型
+function detectFieldTypes() {
+    NUMERIC_FIELDS = [];
+    MULTI_SELECT_FIELDS = [];
+    for (const [key, values] of Object.entries(presetOptions)) {
+        if (!Array.isArray(values) || values.length === 0) continue;
+        // 如果所有值都能解析为数字，则为数值型字段
+        if (values.every(v => v !== '' && v !== null && !isNaN(Number(v)))) {
+            NUMERIC_FIELDS.push(key);
+        } else {
+            // 非数值型字段支持多选
+            MULTI_SELECT_FIELDS.push(key);
+        }
+    }
+}
+
+// 动态生成过滤字段下拉选项
+function buildFilterKeyOptions() {
+    return Object.keys(presetOptions).map(key =>
+        `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`
+    ).join('');
+}
 
 // ================================================================
 // ANN 检索精度控制
@@ -652,8 +680,9 @@ function getSearchParamsFromUI() {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadCurrentUser();
     await loadDatasetsForSelect();
+    detectFieldTypes();         // 先用 presetOptions 预设值判断字段类型
     createDatalists();
-    await loadFilterOptions();  // 加载真实数据中的过滤选项
+    await loadFilterOptions();  // 加载真实数据中的过滤选项（会再次更新字段类型）
 
     const savedPrecision = localStorage.getItem('ann_precision_pct');
     if (savedPrecision !== null) {
@@ -877,14 +906,7 @@ function addFilterRow() {
     row.className = 'filter-row';
     row.innerHTML = `
         <select class="filter-key" onchange="onFilterKeyChange(this)">
-            <option value="cell_type">细胞类型</option>
-            <option value="disease">疾病</option>
-            <option value="AgeGroup">年龄组</option>
-            <option value="sex">性别</option>
-            <option value="Treatment">处理组</option>
-            <option value="Phase">阶段</option>
-            <option value="seurat_clusters">Seurat聚类</option>
-            <option value="donor_age">供体年龄</option>
+            ${buildFilterKeyOptions()}
         </select>
         <select class="filter-op" style="display:none;">
             <option value=">">&gt;</option>
@@ -1689,14 +1711,7 @@ function addMultiFilterRow() {
     row.className = 'filter-row';
     row.innerHTML = `
         <select class="filter-key" onchange="onFilterKeyChange(this)">
-            <option value="cell_type">细胞类型</option>
-            <option value="disease">疾病</option>
-            <option value="AgeGroup">年龄组</option>
-            <option value="sex">性别</option>
-            <option value="Treatment">处理组</option>
-            <option value="Phase">阶段</option>
-            <option value="seurat_clusters">Seurat聚类</option>
-            <option value="donor_age">供体年龄</option>
+            ${buildFilterKeyOptions()}
         </select>
         <select class="filter-op" style="display:none;">
             <option value=">">&gt;</option>

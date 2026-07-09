@@ -335,7 +335,13 @@ def summarize_result(result: dict[str, Any]) -> dict[str, Any]:
         if row.get("distance") is not None
     ]
 
-    fields = ["cell_type", "disease", "AgeGroup", "sex", "Treatment", "batch", "sample"]
+    # 动态从结果中收集所有元数据字段
+    fields_set: set[str] = set()
+    for row in rows:
+        meta = row.get("metadata", {})
+        if isinstance(meta, dict):
+            fields_set.update(meta.keys())
+    fields = sorted(fields_set)
     distributions = {}
     for field in fields:
         counter = Counter(
@@ -413,8 +419,7 @@ def _extract_json_object(content: str) -> dict[str, Any]:
 def _local_summary(stats: dict[str, Any]) -> str:
     result_count = stats.get("result_count", 0)
     parts = [f"共得到 {result_count} 个结果。"]
-    for field in ("cell_type", "disease", "AgeGroup"):
-        dist = stats.get("distributions", {}).get(field)
+    for field, dist in stats.get("distributions", {}).items():
         if dist:
             top = dist[0]
             parts.append(f"{field} 以 {top['value']} 为主，占比约 {top['ratio']:.1%}。")
