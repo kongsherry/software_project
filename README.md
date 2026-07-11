@@ -4,6 +4,8 @@
 
 历史开发进度已迁移到 [PROGRESS.md](PROGRESS.md)。
 
+> **⚠️ 重要提示：** 本项目 Git 仓库不包含数据文件（`.h5ad`、`vectors.npy`、`.index` 等）。克隆后需要先生成测试数据或准备你自己的 `.h5ad` 数据集才能运行。详见下方快速启动说明。
+
 ## 功能概览
 
 - 数据集管理：管理员上传、切换、删除 `.h5ad` 数据集。
@@ -57,23 +59,45 @@ results/datasets/manifest.json
 
 ## 环境依赖
 
+### 方式一：使用 requirements.txt（推荐）
+
+```bash
+pip install -r requirements.txt
+```
+
+### 方式二：手动安装
+
 建议使用已有课程环境或 Conda 环境。核心 Python 依赖包括：
 
 ```text
-flask
-numpy
-pandas
-scanpy
-anndata
-scikit-learn
-faiss-cpu
-werkzeug
+flask>=3.0
+numpy>=1.26
+pandas>=2.0
+scanpy>=1.10
+anndata>=0.10
+scikit-learn>=1.3
+faiss-cpu>=1.7
+werkzeug>=3.0
 ```
 
 如果需要手动安装，可参考：
 
 ```bash
 pip install flask numpy pandas scanpy anndata scikit-learn faiss-cpu werkzeug
+```
+
+### Conda 环境（如使用课程环境）
+
+如果使用 Anaconda/ Miniconda，建议先激活对应环境：
+
+```bash
+conda activate <你的环境名>
+```
+
+验证依赖是否安装成功：
+
+```bash
+python -c "import flask, numpy, pandas, scanpy, anndata, sklearn, faiss; print('所有依赖已就绪')"
 ```
 
 ### DeepSeek 配置
@@ -107,22 +131,32 @@ set DEEPSEEK_MAX_TOKENS=4096
 
 ## 快速启动
 
-### 1. 生成测试数据
+### Git 克隆后的初始状态
 
-测试数据脚本会生成 `data/test_data.h5ad`，并写入：
+项目仓库不包含以下文件（已通过 `.gitignore` 排除）：
 
-```text
-obsm["X_pca"]   # 用于向量检索
-obsm["X_umap"]  # 用于散点图可视化
-```
+- `data/` 目录下的 `.h5ad` 数据集文件
+- `results/` 目录下的向量和元数据导出产物
+- `indices/` 目录下的 FAISS 索引文件（`*.index`）
+- `evaluation_report.json` 等运行时生成文件
 
-运行：
+因此，克隆后有两种方式让系统运行起来：
+
+---
+
+### 方式 A：通过 Web 界面操作（推荐 ✅）
+
+这是最简单的上手方式，所有操作在浏览器中完成。
+
+#### 1. 生成测试数据
 
 ```bash
 python generate_test_h5ad.py
 ```
 
-### 2. 启动 Web 服务
+此脚本会在 `data/` 目录下生成 `test_data.h5ad`，包含 500 个合成细胞、5 种细胞类型、2000 个基因、PCA 和 UMAP 嵌入。
+
+#### 2. 启动 Web 服务
 
 ```bash
 python app.py
@@ -141,11 +175,9 @@ http://127.0.0.1:5000
 密码：admin123
 ```
 
-管理员账号用于上传、删除数据集，以及管理用户；普通登录用户也可以切换活动数据集。
+#### 3. 上传测试数据集
 
-### 3. 上传测试数据集
-
-登录管理员后，在首页“数据集管理”页上传：
+登录管理员（admin / admin123）后，在首页”数据集管理”面板中上传：
 
 ```text
 data/test_data.h5ad
@@ -157,20 +189,112 @@ data/test_data.h5ad
 读取 .h5ad -> 导出向量和元数据 -> 构建 FAISS 索引 -> 设置为活动数据集
 ```
 
-### 4. 使用检索与可视化
+> **说明：** 通过 Web 界面上传的数据集会完整注册到系统，散点图可视化、条件过滤、性能评估等全部功能均可正常使用。这也是推荐的新手路径。
 
-切换到“探索”页后，可以：
+#### 4. 使用检索与可视化
 
-- 按 Cell ID 查询 Top-K 近邻。
+切换到”探索”页后，可以：
+
+- 按 Cell ID 查询 Top-K 近邻。（测试数据示例：`cell_0044`、`cell_0100`）
 - 粘贴原始向量进行查询。
 - 添加元数据过滤条件，包括多选和数值范围过滤。
 - 通过精度滑块调整 ANN 检索参数。
-- 使用自然语言查询，例如“找 HCC 样本中最像 NK-cell 的 5 个细胞”。
-- 查看 UMAP 散点图。
-- 点击散点图中的细胞，自动反向查询该细胞的 Top-K 近邻。
+- 使用自然语言查询（需配置 DeepSeek API Key）。
+- 查看 UMAP 散点图并点击细胞反向查询。
 - 对当前检索结果执行 AI 分析。
 
-切换到“联合检索”页后，可以加载多个数据集，并对多个数据集进行统一 Top-K 检索。
+切换到”联合检索”页后，可以加载多个数据集进行跨数据集检索。
+
+---
+
+### 方式 B：通过命令行操作
+
+适合只想在终端中测试检索功能的场景。注意：CLI 路径导出的默认数据集的散点图可视化需要 `.h5ad` 源文件匹配，因此建议仅在不需要可视化的场景下使用，或确保使用的 `.h5ad` 文件路径一致。
+
+#### 1. 准备 .h5ad 数据
+
+如果有真实数据集（如 `data/liver.h5ad`），直接使用。否则先生成测试数据：
+
+```bash
+python generate_test_h5ad.py
+```
+
+#### 2. 导出向量
+
+```bash
+python data_loader.py --input data/test_data.h5ad --outdir results
+```
+
+常用参数：
+
+```bash
+python data_loader.py --embedding X_pca
+python data_loader.py --dims 30
+python data_loader.py --dims -1
+python data_loader.py --no-l2
+python data_loader.py --obs-cols cell_type,disease,AgeGroup,n_counts,n_genes
+```
+
+输出：
+
+```text
+results/vectors.npy
+results/cell_ids.npy
+results/obs_metadata.csv
+results/summary.json
+```
+
+#### 3. 构建索引
+
+```bash
+python index_builder.py --input results/vectors.npy --outdir indices
+```
+
+常用参数：
+
+```bash
+python index_builder.py --type hnsw --M 32 --ef 200
+python index_builder.py --type ivf_hnsw --nlist 256 --M 32 --ef 200
+python index_builder.py --type flat
+```
+
+输出：
+
+```text
+indices/hnsw_M32_ef200.index
+indices/ivf_hnsw_nlist256_M32_ef200.index
+indices/flat.index
+```
+
+#### 4. 命令行检索
+
+```bash
+python search.py --cell-id cell_0044 --k 10
+```
+
+#### 5. （可选）启动 Web 服务
+
+```bash
+python app.py
+```
+
+此时系统会检测到 `results/` 和 `indices/` 下已有产物，自动注册为只读的 `default` 数据集。检索和指标功能可用，但散点图功能需要 `.h5ad` 源文件与产物匹配。
+
+---
+
+### 测试数据说明
+
+测试数据脚本 `generate_test_h5ad.py` 生成的合成数据包含：
+
+| 属性 | 值 |
+|------|-----|
+| 细胞数 | 500 |
+| 基因数 | 2000 |
+| PCA 维度 | 50（默认检索使用前 30 维） |
+| UMAP 维度 | 2 |
+| 细胞类型 | T-cell, B-cell, Monocyte, NK-cell, Hepatocyte |
+| 疾病状态 | Healthy, Cirrhosis, HCC |
+| 年龄组 | Young, Middle, Senior |
 
 测试数据中的 Cell ID 示例：
 
@@ -182,7 +306,7 @@ cell_0100
 
 ## 命令行流程
 
-如果不通过 Web 上传，也可以手动完成数据导出和索引构建。
+以下为独立于 Web 界面的命令行操作参考。如果你已通过 Web 界面上传数据集，无需手动执行以下命令。
 
 ### 导出向量
 
@@ -516,16 +640,70 @@ python app.py
 ```text
 1. 打开 http://127.0.0.1:5000
 2. 使用 admin / admin123 登录
-3. 上传 data/test_data.h5ad
-4. 切换到“探索”页
+3. 上传 data/test_data.h5ad（在”数据集管理”面板）
+4. 切换到”探索”页
 5. 输入 cell_0044，Top-K 设置为 10，执行检索
 6. 添加过滤条件 disease = HCC 或 cell_type = NK-cell，再次检索
 7. 调整精度滑块，检查结果表头中的 efSearch / nprobe / 精度信息
-8. 使用自然语言查询“找 HCC 样本中最像 NK-cell 的 5 个细胞”
-9. 点击“AI 分析当前结果”，检查分析面板
+8. 使用自然语言查询”找 HCC 样本中最像 NK-cell 的 5 个细胞”（需配置 DeepSeek API Key）
+9. 点击”AI 分析当前结果”，检查分析面板
 10. 点击散点图中的细胞，检查结果表是否刷新
-11. 切换到“联合检索”页，加载 default 和 test_data 后执行跨数据集检索
-12. 切换到“性能评估”页，查看实时指标和离线 Recall 报告
+11. 切换到”联合检索”页，加载 test_data 后执行跨数据集检索
+12. 切换到”性能评估”页，查看实时指标和离线 Recall 报告
+```
+
+### 命令行接口测试（可选）
+
+以下命令可快速验证检索功能是否正常：
+
+```bash
+# 1. 生成测试数据
+python generate_test_h5ad.py
+
+# 2. 导出向量（500 个细胞，30 维 PCA）
+python data_loader.py --input data/test_data.h5ad --outdir results
+
+# 3. 构建 HNSW 索引
+python index_builder.py --input results/vectors.npy --outdir indices
+
+# 4. 命令行检索测试
+python search.py --cell-id cell_0044 --k 10
+
+# 预期输出：
+#   [1] cell_0044, distance=0.0000  ← 自身距离为 0
+#   [2] cell_XXXX, distance=0.xxxx  ← NK-cell 类型的近邻细胞
+#   ...
+```
+
+### API 接口测试（curl）
+
+```bash
+# 登录并保存 Cookie
+curl -c cookies.txt -X POST http://127.0.0.1:5000/api/auth/login \
+  -H “Content-Type: application/json” \
+  -d “{\”username\”:\”admin\”,\”password\”:\”admin123\”}”
+
+# 按 Cell ID 检索
+curl -b cookies.txt -X POST http://127.0.0.1:5000/search \
+  -H “Content-Type: application/json” \
+  -d “{\”cell_id\”:\”cell_0044\”,\”k\”:5}”
+
+# 带条件过滤检索
+curl -b cookies.txt -X POST http://127.0.0.1:5000/search \
+  -H “Content-Type: application/json” \
+  -d “{\”cell_id\”:\”cell_0044\”,\”k\”:10,\”filters\”:{\”disease\”:\”HCC\”,\”cell_type\”:\”NK-cell\”}}”
+
+# 获取散点图数据
+curl -b cookies.txt “http://127.0.0.1:5000/scatter_data?max_points=100”
+
+# 获取可用过滤字段
+curl -b cookies.txt http://127.0.0.1:5000/filter_options
+
+# 获取系统状态
+curl -b cookies.txt http://127.0.0.1:5000/status
+
+# 获取性能指标
+curl -b cookies.txt http://127.0.0.1:5000/metrics
 ```
 
 ### 权限测试
@@ -552,6 +730,81 @@ DELETE /datasets/default   # 返回 400，因为 default 数据集受保护
 python -m py_compile app.py ai_analyzer.py search.py dataset_manager.py visualize.py user_manager.py multi_search.py data_loader.py index_builder.py evaluate.py generate_test_h5ad.py
 ```
 
+## 故障排查
+
+### 启动后检索失败，提示"未找到细胞ID"
+
+**症状：** 搜索 `cell_0044` 时返回错误，提示可用的 ID 示例为 `AAACCTGAGCAGGTCA-1_2` 等。
+
+**原因：** 当前活动数据集使用的是旧的 liver 数据产物。可能是之前运行过 `data_loader.py` 导出了 liver 数据。
+
+**解决：** 通过 Web 界面上传 `data/test_data.h5ad`，系统会自动完成导出、建索引和激活。
+
+### 散点图无法显示，提示"元数据行数与 h5ad 细胞数不一致"
+
+**症状：** 访问 `/scatter_data` 返回 400 错误，提示行数不一致（如 500 vs 69032）。
+
+**原因：** 当前数据集引用的 `.h5ad` 源文件与 `results/` 下的向量/元数据产物不匹配。常见于：
+- 用 `data_loader.py` 从 `test_data.h5ad`（500 细胞）导出，但 `source_path` 指向 `data/liver.h5ad`（69032 细胞）
+- 或者反过来
+
+**解决：**
+1. 推荐：通过 Web 界面上传 `.h5ad`（系统自动保持源文件与产物一致）
+2. 或：确保 CLI 导出的 `--input` 路径与后续使用的源文件一致
+
+### 端口 5000 被占用
+
+**症状：** 启动 Flask 时提示 `Address already in use`。
+
+**解决：**
+```bash
+# Windows: 查找并关闭占用端口的进程
+netstat -ano | findstr ":5000"
+taskkill //PID <进程ID> //F
+
+# 然后重新启动
+python app.py
+```
+
+### 关闭调试模式（生产环境）
+
+默认以 debug 模式启动。如果需要关闭自动重载和多进程：
+
+```bash
+# Windows (cmd)
+set FLASK_DEBUG=0
+python app.py
+
+# Windows (PowerShell)
+$env:FLASK_DEBUG=0
+python app.py
+
+# Linux / macOS / Git Bash
+FLASK_DEBUG=0 python app.py
+```
+
+### Python 找不到依赖模块
+
+**症状：** `ModuleNotFoundError: No module named 'anndata'` 或类似错误。
+
+**解决：**
+1. 确认已安装依赖：`pip install -r requirements.txt`
+2. 如果使用 Conda，确认已激活正确的环境：`conda activate <环境名>`
+3. 验证安装：`python -c "import flask, numpy, pandas, scanpy, anndata, sklearn, faiss; print('OK')"`
+
+### AI 自然语言查询不工作
+
+**症状：** 使用 `/ai/query` 时返回错误或无法解析。
+
+**原因：** 未配置 DeepSeek API Key。
+
+**解决：** 配置环境变量后重启服务：
+```bash
+set DEEPSEEK_API_KEY=你的DeepSeek API Key
+python app.py
+```
+未配置 API Key 时，AI 分析功能会自动退化为本地统计摘要（仅 `/ai/analyze` 可用）。
+
 ## 注意事项
 
 - `admin / admin123` 仅适合本地测试，正式部署应修改默认管理员密码。
@@ -559,4 +812,8 @@ python -m py_compile app.py ai_analyzer.py search.py dataset_manager.py visualiz
 - 上传大型 `.h5ad` 时，向量导出和索引构建可能耗时较长。
 - 可视化接口需要原始 `.h5ad` 中存在 `obsm["X_umap"]` 或 `obsm["X_tsne"]`。
 - 当前前端通过 Plotly CDN 加载图表库，离线环境需要改成本地静态文件。
+- 项目仓库不包含数据文件和索引文件（`data/`、`results/`、`indices/`、`*.index`），克隆后需按快速启动流程操作。
+- 已有的 `results/` 和 `indices/` 下产物（如从真实 liver 数据集导出）会被自动识别为只读的 `default` 数据集，不能通过 Web 界面删除。
+- 使用 CLI 路径（`data_loader.py` + `index_builder.py`）导出数据时，建议使用相同的数据源文件（`--input`），否则可能导致散点图等依赖 `.h5ad` 源文件的功能异常。
+- 测试数据使用 `cell_0000` ~ `cell_0499` 格式的 Cell ID；真实 liver 数据集使用 `AAACCTGAGCAGGTCA-1_2` 等格式。检索时请使用与当前数据集匹配的 ID。
 
